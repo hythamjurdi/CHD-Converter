@@ -57,6 +57,9 @@ def save_settings():
 
 
 def broadcast_event(event_type, data):
+    # Strip logs from job_update broadcasts — clients fetch logs on demand
+    if event_type == "job_update":
+        data = _slim_job(data)
     msg = f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
     with sse_lock:
         dead = []
@@ -135,7 +138,44 @@ def update_settings_route():
 
 @app.route("/api/jobs", methods=["GET"])
 def get_jobs():
-    with jobs_lock: return jsonify(list(jobs.values()))
+    status   = request.args.get("status")       # filter by status
+    page     = int(request.args.get("page", 1))
+    per_page = int(request.args.get("per_page", 50))
+    slim     = request.args.get("slim", "0") == "1"  # strip logs
+
+    with jobs_lock:
+        all_jobs = list(jobs.values())
+
+    if status:
+        statuses = status.split(",")
+        all_jobs = [j for j in all_jobs if j["status"] in statuses]
+
+    # Sort: active first, then by updated_at desc
+    def sort_key(j):
+        active_order = {"running": 0, "extracting": 0, "rezipping": 0, "queued": 1}
+        return (active_order.get(j["status"], 2), j.get("updated_at", ""))
+    all_jobs.sort(key=sort_key)
+
+    total  = len(all_jobs)
+    start  = (page - 1) * per_page
+    paged  = all_jobs[start:start + per_page]
+    if slim:
+        paged = [_slim_job(j) for j in paged]
+
+    return jsonify({
+        "jobs":     paged,
+        "total":    total,
+        "page":     page,
+        "per_page": per_page,
+        "pages":    max(1, (total + per_page - 1) // per_page),
+    })
+
+@app.route("/api/jobs/<job_id>", methods=["GET"])
+def get_single_job(job_id):
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job: return jsonify({"error": "Not found"}), 404
+    return jsonify(job)  # includes log
 
 @app.route("/api/jobs/scan", methods=["POST"])
 def scan_and_queue():
@@ -214,7 +254,11 @@ def get_stats():
         by_status = {}
         for j in jobs.values():
             by_status[j["status"]] = by_status.get(j["status"], 0) + 1
-        return jsonify({"total": len(jobs), "by_status": by_status})
+        return jsonify({
+            "total":     len(jobs),
+            "by_status": by_status,
+            "active":    sum(by_status.get(s, 0) for s in ("queued","running","extracting","rezipping")),
+        })
 
 # ── History endpoints ─────────────────────────────────────────────
 
@@ -271,14 +315,45 @@ def clear_history():
 
 # ── SSE stream ────────────────────────────────────────────────────
 
+ACTIVE_STATUSES = {"queued", "running", "extracting", "rezipping"}
+INIT_MAX_COMPLETED = 50  # completed jobs to include in init payload
+
+def _slim_job(job):
+    """Strip log from job for SSE init — logs are fetched on demand."""
+    j = dict(job)
+    j.pop("log", None)
+    return j
+
 @app.route("/stream")
 def stream():
     def event_stream():
         q = queue.Queue()
         with sse_lock: sse_clients.append(q)
         try:
-            with jobs_lock: current = list(jobs.values())
-            yield f"event: init\ndata: {json.dumps({'jobs': current, 'settings': settings})}\n\n"
+            with jobs_lock:
+                all_jobs = list(jobs.values())
+
+            # Split into active and terminal
+            active   = [j for j in all_jobs if j["status"] in ACTIVE_STATUSES]
+            failed   = [j for j in all_jobs if j["status"] in ("failed", "cancelled")]
+            done     = sorted(
+                [j for j in all_jobs if j["status"] in ("completed", "skipped")],
+                key=lambda j: j.get("updated_at", ""), reverse=True
+            )[:INIT_MAX_COMPLETED]
+
+            init_jobs = active + failed + done
+            total_counts = {}
+            for j in all_jobs:
+                s = j["status"]
+                total_counts[s] = total_counts.get(s, 0) + 1
+
+            payload = {
+                "jobs": [_slim_job(j) for j in init_jobs],
+                "settings": settings,
+                "total_counts": total_counts,
+                "total_jobs": len(all_jobs),
+            }
+            yield f"event: init\ndata: {json.dumps(payload)}\n\n"
             while True:
                 try: yield q.get(timeout=25)
                 except queue.Empty: yield "event: ping\ndata: {}\n\n"
