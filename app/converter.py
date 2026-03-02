@@ -1,0 +1,506 @@
+import os, subprocess, shutil, threading, tempfile, logging, re, hashlib
+
+logger = logging.getLogger(__name__)
+
+ISO_EXTENSIONS     = {".iso", ".img", ".bin", ".cue", ".mdf", ".nrg"}
+ARCHIVE_EXTENSIONS = {".7z", ".zip", ".rar", ".tar", ".gz", ".tar.gz", ".tgz"}
+MIN_ISO_SIZE       = 1 * 1024 * 1024
+MAX_ISO_SIZE       = 9.5 * 1024 * 1024 * 1024
+
+
+# ── Detection helpers ────────────────────────────────────────────
+
+def detect_chd_type(file_path):
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext in (".iso", ".img", ".bin", ".cue", ".mdf", ".nrg"):
+        return "cd"
+    return "cd"
+
+def find_cue_files(folder):
+    cues = []
+    for root, _, files in os.walk(folder):
+        for f in files:
+            if f.lower().endswith(".cue"):
+                cues.append(os.path.join(root, f))
+    return cues
+
+def find_iso_files(folder):
+    results = []
+    cue_bins = set()
+    for root, _, files in os.walk(folder):
+        for f in files:
+            if f.lower().endswith(".cue"):
+                try:
+                    with open(os.path.join(root, f)) as cf:
+                        for line in cf:
+                            if "FILE" in line.upper():
+                                parts = line.strip().split('"')
+                                if len(parts) >= 2:
+                                    cue_bins.add(os.path.join(root, parts[1]))
+                except: pass
+    for root, _, files in os.walk(folder):
+        for f in files:
+            full = os.path.join(root, f)
+            ext  = os.path.splitext(f)[1].lower()
+            if ext in (".iso", ".img", ".mdf", ".nrg"):
+                results.append(full)
+            elif ext == ".bin" and full not in cue_bins:
+                results.append(full)
+    return results
+
+
+# ── Bad dump detection ───────────────────────────────────────────
+
+def check_bad_dump(iso_path, mode="size", log_fn=None):
+    try:
+        size = os.path.getsize(iso_path)
+    except Exception as e:
+        return True, f"Cannot read file: {e}"
+    gb = size / (1024**3)
+    mb = size / (1024**2)
+    if size < MIN_ISO_SIZE:
+        return True, f"File too small ({mb:.1f} MB) — likely corrupt or incomplete"
+    if size > MAX_ISO_SIZE:
+        return True, f"File too large ({gb:.2f} GB) — exceeds dual-layer DVD capacity"
+    if mode == "checksum":
+        if log_fn: log_fn(f"Computing MD5 of {os.path.basename(iso_path)} ({gb:.2f} GB)…")
+        md5 = hashlib.md5()
+        try:
+            with open(iso_path, 'rb') as f:
+                while chunk := f.read(8 * 1024 * 1024):
+                    md5.update(chunk)
+            if log_fn: log_fn(f"MD5: {md5.hexdigest().upper()} (verify at redump.org)")
+        except Exception as e:
+            if log_fn: log_fn(f"MD5 failed: {e}", "warn")
+    return False, None
+
+
+# ── Core subprocess runner ───────────────────────────────────────
+
+def _run_with_progress(cmd, log_fn=None, progress_fn=None):
+    """
+    Run a subprocess, parse percentage progress lines (handles \\r and \\n).
+    Logs each unique 5% step. Calls progress_fn on every change.
+    """
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
+    buf      = b""
+    last_pct = -1   # tracks last reported value so we never go backwards / spam
+
+    while True:
+        ch = proc.stdout.read(1)
+        if not ch:
+            break
+        if ch in (b'\r', b'\n'):
+            line = buf.decode("utf-8", errors="replace").strip()
+            buf  = b""
+            if not line:
+                continue
+            m = re.search(r'(\d+)%', line)
+            if m:
+                pct = int(m.group(1))
+                if pct > last_pct:          # only move forward, never repeat
+                    last_pct = pct
+                    if log_fn and pct % 5 == 0:   # log every 5%
+                        log_fn(f"Progress: {pct}%")
+                    if progress_fn:
+                        progress_fn(pct)
+            else:
+                # Non-progress line (filenames, chdman info, errors, etc.)
+                if log_fn: log_fn(line)
+        else:
+            buf += ch
+
+    if buf:  # flush any partial line without a terminator
+        line = buf.decode("utf-8", errors="replace").strip()
+        if line and log_fn: log_fn(line)
+
+    proc.wait()
+    return proc.returncode
+
+
+def _run_with_timer_progress(cmd, log_fn=None, progress_fn=None, tick_interval=1.5, max_pct=94):
+    """
+    Run a subprocess while a background timer smoothly increments progress
+    using a logarithmic curve (fast at start, slows near max_pct).
+    Used for 7z/unrar which don't emit reliable progress when piped.
+    """
+    import time, math
+
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
+    stop_timer = threading.Event()
+    current_pct = [0]
+
+    def timer_thread():
+        tick = 0
+        while not stop_timer.is_set():
+            time.sleep(tick_interval)
+            tick += 1
+            new_pct = int(max_pct * (1 - 1 / math.log(tick + math.e)))
+            if new_pct > current_pct[0]:
+                current_pct[0] = new_pct
+                if progress_fn:
+                    progress_fn(new_pct)
+
+    t = threading.Thread(target=timer_thread, daemon=True)
+    t.start()
+
+    buf = b""
+    while True:
+        ch = proc.stdout.read(1)
+        if not ch:
+            break
+        if ch in (b'\r', b'\n'):
+            line = buf.decode("utf-8", errors="replace").strip()
+            buf = b""
+            if line:
+                # Skip bare percentage lines (e.g. "  0%") — handled by timer
+                if not re.match(r'^\s*\d+%\s*$', line):
+                    if log_fn: log_fn(line)
+        else:
+            buf += ch
+
+    if buf:
+        line = buf.decode("utf-8", errors="replace").strip()
+        if line and not re.match(r'^\s*\d+%\s*$', line):
+            if log_fn: log_fn(line)
+
+    stop_timer.set()
+    t.join(timeout=2)
+    proc.wait()
+    return proc.returncode
+
+
+# ── Archive helpers ──────────────────────────────────────────────
+
+def extract_archive(archive_path, dest_folder, log_fn=None, progress_fn=None):
+    ext = archive_path.lower()
+    os.makedirs(dest_folder, exist_ok=True)
+
+    if not os.access(archive_path, os.R_OK):
+        raise RuntimeError(
+            f"Permission denied: '{os.path.basename(archive_path)}'. "
+            f"Run: chmod 644 \"{archive_path}\""
+        )
+
+    if ext.endswith(".7z"):
+        cmd = ["7z", "x", archive_path, f"-o{dest_folder}", "-y", "-bsp1"]
+    elif ext.endswith(".zip"):
+        cmd = ["unzip", "-o", archive_path, "-d", dest_folder]
+    elif ext.endswith(".rar"):
+        cmd = ["unrar", "x", "-o+", archive_path, dest_folder]
+    elif ext.endswith((".tar.gz", ".tgz")):
+        cmd = ["tar", "xzf", archive_path, "-C", dest_folder]
+    elif ext.endswith(".tar"):
+        cmd = ["tar", "xf",  archive_path, "-C", dest_folder]
+    else:
+        cmd = ["7z", "x", archive_path, f"-o{dest_folder}", "-y", "-bsp1"]
+
+    if log_fn: log_fn(f"Extracting: {os.path.basename(archive_path)}")
+    # 7z/unrar don't reliably emit progress when piped — use timer-based progress
+    rc = _run_with_timer_progress(cmd, log_fn=log_fn, progress_fn=progress_fn)
+    if progress_fn: progress_fn(100)   # snap to 100% on completion
+    if rc != 0:
+        raise RuntimeError(f"Extraction failed (exit {rc})")
+    return dest_folder
+
+
+def rezip_to_7z(chd_path, output_7z, compression=5, log_fn=None, progress_fn=None):
+    cmd = ["7z", "a", f"-mx={compression}", "-bsp1", output_7z, chd_path]
+    if log_fn: log_fn(f"Creating archive: {os.path.basename(output_7z)} (level {compression})")
+    rc = _run_with_timer_progress(cmd, log_fn=log_fn, progress_fn=progress_fn)
+    if rc != 0:
+        raise RuntimeError(f"7z compression failed (exit {rc})")
+    if os.path.exists(chd_path):
+        os.remove(chd_path)
+        if log_fn: log_fn(f"Removed CHD (now inside archive): {os.path.basename(chd_path)}", "warn")
+    return output_7z
+
+
+# ── chdman wrapper ───────────────────────────────────────────────
+
+def run_chdman(input_file, output_file, chd_type, log_fn=None, progress_fn=None):
+    if chd_type == "hd":
+        cmd = ["chdman", "createhd", "-i", input_file, "-o", output_file, "-f"]
+    else:
+        cmd = ["chdman", "createcd", "-i", input_file, "-o", output_file, "-f"]
+    if log_fn: log_fn(f"Running: {' '.join(cmd)}")
+    rc = _run_with_progress(cmd, log_fn=log_fn, progress_fn=progress_fn)
+    if rc != 0:
+        raise RuntimeError(f"chdman failed (exit code {rc})")
+    return output_file
+
+
+# ── Conversion Worker ────────────────────────────────────────────
+
+class ConversionWorker:
+    def __init__(self, job_queue, jobs, jobs_lock, settings, update_job_fn,
+                 log_fn, broadcast_fn, conflict_events, conflict_resolutions, apply_to_all_resolution):
+        self.job_queue   = job_queue
+        self.jobs        = jobs
+        self.jobs_lock   = jobs_lock
+        self.settings    = settings
+        self.update_job  = update_job_fn
+        self.log         = log_fn
+        self.broadcast   = broadcast_fn
+        self.conflict_events      = conflict_events
+        self.conflict_resolutions = conflict_resolutions
+        self.apply_to_all         = apply_to_all_resolution
+        self._stop = False
+
+    def run(self):
+        while not self._stop:
+            try:
+                job_id = self.job_queue.get(timeout=1)
+                with self.jobs_lock:
+                    if job_id not in self.jobs: continue
+                    if self.jobs[job_id]["status"] == "cancelled": continue
+                self.process_job(job_id)
+            except Exception:
+                pass
+
+    def _out_base(self, src_path, archive_path, game_name):
+        """Determine the output base filename."""
+        if game_name:
+            return game_name
+        if archive_path and self.settings.get("rename_to_archive", False):
+            return os.path.splitext(os.path.basename(archive_path))[0]
+        return os.path.splitext(os.path.basename(src_path))[0]
+
+    def process_job(self, job_id):
+        with self.jobs_lock:
+            job = dict(self.jobs[job_id])
+
+        self.update_job(job_id, status="running", progress=5)
+        file_path   = job["file_path"]
+        ext         = os.path.splitext(file_path)[1].lower()
+        dest_folder = self.settings.get("destination_folder", "/destination")
+        os.makedirs(dest_folder, exist_ok=True)
+
+        do_lookup  = self.settings.get("lookup_game_name", False)
+        dump_mode  = self.settings.get("bad_dump_detection", "off")
+        do_rezip   = self.settings.get("rezip_after_conversion", False)
+        rezip_lvl  = self.settings.get("rezip_compression_level", 5)
+
+        def log(msg, level="info"):
+            self.log(job_id, msg, level)
+
+        try:
+            is_archive = any(file_path.lower().endswith(a) for a in ARCHIVE_EXTENSIONS) \
+                         or ext in (".7z", ".zip", ".rar", ".gz", ".tgz", ".tar")
+
+            if is_archive:
+                if not self.settings.get("extract_archives", True):
+                    log("Archive extraction disabled. Skipping.", "warn")
+                    self.update_job(job_id, status="skipped")
+                    return
+
+                # ── Pre-extraction conflict check ──────────────────
+                # If we can determine the output name without extracting
+                # (rename_to_archive mode), check for conflict now so we
+                # don't waste time extracting a multi-GB archive needlessly.
+                if self.settings.get("rename_to_archive", False) and not do_lookup:
+                    pre_base = os.path.splitext(os.path.basename(file_path))[0]
+                    pre_chd  = os.path.join(dest_folder, pre_base + ".chd")
+                    pre_7z   = os.path.join(dest_folder, pre_base + ".7z")
+                    target   = pre_7z if do_rezip else pre_chd
+                    if os.path.exists(target):
+                        result = self._handle_conflict(job_id, target, log)
+                        if result == "skip":
+                            self.update_job(job_id, status="skipped", progress=100)
+                            log(f"Skipped (output already exists): {os.path.basename(target)}", "warn")
+                            return
+
+                tmp_dir = tempfile.mkdtemp(prefix="chd_extract_")
+                try:
+                    # ── EXTRACTING ────────────────────────────────
+                    self.update_job(job_id, status="extracting", progress=5)
+
+                    def ext_pfn(pct):
+                        self.update_job(job_id, progress=int(5 + pct * 0.20))  # 5→25%
+
+                    extract_archive(file_path, tmp_dir, log_fn=log, progress_fn=ext_pfn)
+                    self.update_job(job_id, progress=25)
+
+                    cue_files   = find_cue_files(tmp_dir)
+                    iso_files   = find_iso_files(tmp_dir)
+                    convertible = cue_files if cue_files else iso_files
+
+                    if not convertible:
+                        log("No convertible files found in archive.", "error")
+                        self.update_job(job_id, status="failed", error="No ISO/CUE files found")
+                        return
+
+                    log(f"Found {len(convertible)} file(s) to convert")
+                    total = len(convertible)
+                    success_count = 0
+
+                    for i, src in enumerate(convertible):
+                        # ── RUNNING ───────────────────────────────
+                        self.update_job(job_id, status="running")
+                        chd_type = self.settings.get("chd_type", "auto")
+                        if chd_type == "auto":
+                            chd_type = detect_chd_type(src)
+
+                        if dump_mode != "off":
+                            is_bad, reason = check_bad_dump(src, mode=dump_mode, log_fn=log)
+                            self.update_job(job_id, bad_dump=is_bad, bad_dump_reason=reason)
+                            if is_bad: log(f"⚠️  Bad dump: {reason}", "warn")
+
+                        disc_id, game_name = None, None
+                        if do_lookup:
+                            from game_db import get_game_name
+                            disc_id, game_name = get_game_name(src, iso_path=src)
+                            if game_name:
+                                log(f"🎮 {game_name} ({disc_id})", "success")
+                                self.update_job(job_id, disc_id=disc_id, game_name=game_name)
+                            elif disc_id:
+                                log(f"Disc ID: {disc_id} (not in database)", "warn")
+                                self.update_job(job_id, disc_id=disc_id)
+
+                        base    = self._out_base(src, file_path, game_name)
+                        out_chd = os.path.join(dest_folder, base + ".chd")
+                        log(f"[{i+1}/{total}] {os.path.basename(src)} → {base}.chd ({chd_type.upper()})")
+
+                        conflict_result = self._handle_conflict(job_id, out_chd, log)
+                        if conflict_result == "skip":
+                            log(f"Skipping existing: {os.path.basename(out_chd)}", "warn")
+                            continue
+
+                        base_p  = 25 + int(65 * i / total)
+                        range_p = max(1, int(65 / total))
+
+                        def make_pfn(bp, rp, jid=job_id, ct=chd_type, op=out_chd):
+                            def pfn(pct):
+                                self.update_job(jid, progress=int(bp + (pct/100)*rp),
+                                                chd_type_used=ct, output_path=op)
+                            return pfn
+
+                        run_chdman(src, out_chd, chd_type, log_fn=log,
+                                   progress_fn=make_pfn(base_p, range_p))
+                        log(f"Done: {base}.chd", "success")
+                        success_count += 1
+                        self.update_job(job_id,
+                                        progress=25 + int(65 * (i+1) / total),
+                                        output_path=out_chd, chd_type_used=chd_type)
+
+                        # ── REZIPPING ─────────────────────────────
+                        if do_rezip and os.path.exists(out_chd):
+                            self.update_job(job_id, status="rezipping", progress=90)
+                            out_7z = os.path.splitext(out_chd)[0] + ".7z"
+
+                            def rz_pfn(pct):
+                                self.update_job(job_id, progress=int(90 + pct * 0.09))
+
+                            rezip_to_7z(out_chd, out_7z, compression=rezip_lvl,
+                                        log_fn=log, progress_fn=rz_pfn)
+                            self.update_job(job_id, rezip_path=out_7z, output_path=out_7z)
+                            log(f"Archived: {os.path.basename(out_7z)}", "success")
+
+                    if self.settings.get("delete_archive_after", False):
+                        os.remove(file_path)
+                        log(f"Deleted source archive: {os.path.basename(file_path)}", "warn")
+
+                    self.update_job(job_id, status="completed", progress=100)
+                    log(f"Completed {success_count}/{total} conversions", "success")
+
+                finally:
+                    shutil.rmtree(tmp_dir, ignore_errors=True)
+
+            else:
+                # ── Direct ISO ────────────────────────────────────
+                chd_type = self.settings.get("chd_type", "auto")
+                if chd_type == "auto":
+                    chd_type = detect_chd_type(file_path)
+
+                if dump_mode != "off":
+                    is_bad, reason = check_bad_dump(file_path, mode=dump_mode, log_fn=log)
+                    self.update_job(job_id, bad_dump=is_bad, bad_dump_reason=reason)
+                    if is_bad: log(f"⚠️  Bad dump: {reason}", "warn")
+
+                disc_id, game_name = None, None
+                if do_lookup:
+                    from game_db import get_game_name
+                    disc_id, game_name = get_game_name(file_path, iso_path=file_path)
+                    if game_name:
+                        log(f"🎮 {game_name} ({disc_id})", "success")
+                        self.update_job(job_id, disc_id=disc_id, game_name=game_name)
+                    elif disc_id:
+                        log(f"Disc ID: {disc_id} (not in DB)", "warn")
+                        self.update_job(job_id, disc_id=disc_id)
+
+                base    = self._out_base(file_path, None, game_name)
+                out_chd = os.path.join(dest_folder, base + ".chd")
+                log(f"Converting: {os.path.basename(file_path)} → {base}.chd ({chd_type.upper()})")
+                self.update_job(job_id, progress=10, chd_type_used=chd_type)
+
+                conflict_result = self._handle_conflict(job_id, out_chd, log)
+                if conflict_result == "skip":
+                    self.update_job(job_id, status="skipped", progress=100)
+                    return
+
+                def iso_pfn(pct):
+                    self.update_job(job_id, progress=int(10 + (pct/100)*75))
+
+                run_chdman(file_path, out_chd, chd_type, log_fn=log, progress_fn=iso_pfn)
+                self.update_job(job_id, progress=85, output_path=out_chd)
+
+                if self.settings.get("delete_iso_after", False):
+                    if ext in (".iso", ".img", ".mdf", ".nrg"):
+                        os.remove(file_path)
+                        log(f"Deleted source: {os.path.basename(file_path)}", "warn")
+                    elif ext == ".cue":
+                        try:
+                            with open(file_path) as cf:
+                                for line in cf:
+                                    if "FILE" in line.upper():
+                                        parts = line.strip().split('"')
+                                        if len(parts) >= 2:
+                                            bp = os.path.join(os.path.dirname(file_path), parts[1])
+                                            if os.path.exists(bp): os.remove(bp)
+                        except: pass
+                        os.remove(file_path)
+                        log("Deleted source files", "warn")
+
+                if do_rezip and os.path.exists(out_chd):
+                    self.update_job(job_id, status="rezipping", progress=90)
+                    out_7z = os.path.splitext(out_chd)[0] + ".7z"
+
+                    def iso_rz_pfn(pct):
+                        self.update_job(job_id, progress=int(90 + pct * 0.09))
+
+                    rezip_to_7z(out_chd, out_7z, compression=rezip_lvl,
+                                log_fn=log, progress_fn=iso_rz_pfn)
+                    self.update_job(job_id, rezip_path=out_7z, output_path=out_7z)
+                    log(f"Archived: {os.path.basename(out_7z)}", "success")
+
+                self.update_job(job_id, status="completed", progress=100)
+                log(f"Done: {base}.chd", "success")
+
+        except Exception as e:
+            logger.exception(f"Job {job_id} failed")
+            self.update_job(job_id, status="failed", error=str(e), progress=0)
+            log(f"Error: {e}", "error")
+
+    def _handle_conflict(self, job_id, out_path, log):
+        if not os.path.exists(out_path):
+            return "overwrite"
+        if self.apply_to_all[0]:
+            return self.apply_to_all[0]
+        setting = self.settings.get("overwrite_existing", "ask")
+        if setting == "skip":
+            log(f"Already exists, skipping: {os.path.basename(out_path)}", "warn")
+            return "skip"
+        if setting == "overwrite":
+            log(f"Already exists, overwriting: {os.path.basename(out_path)}", "warn")
+            return "overwrite"
+        log(f"File exists — waiting for your decision: {os.path.basename(out_path)}", "warn")
+        event = threading.Event()
+        self.conflict_events[job_id] = event
+        self.broadcast("conflict", {"job_id": job_id,
+                                    "filename": os.path.basename(out_path),
+                                    "path": out_path})
+        event.wait(timeout=300)
+        resolution = self.conflict_resolutions.get(job_id, "skip")
+        self.conflict_events.pop(job_id, None)
+        self.conflict_resolutions.pop(job_id, None)
+        return resolution
