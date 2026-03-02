@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CHD Converter</title>
+<style>
+:root[data-theme="dark"]{--bg:#0f1117;--surface:#1a1d27;--surface2:#22263a;--border:#2e3347;--text:#e2e8f0;--text-muted:#6b7280;--accent:#6366f1;--accent-hover:#4f52e0;--accent2:#22d3ee;--success:#10b981;--warning:#f59e0b;--error:#ef4444;--running:#8b5cf6;--extracting:#06b6d4;--rezipping:#f97316;--shadow:0 4px 24px rgba(0,0,0,.4)}
+:root[data-theme="light"]{--bg:#f1f5f9;--surface:#fff;--surface2:#f8fafc;--border:#e2e8f0;--text:#1e293b;--text-muted:#64748b;--accent:#6366f1;--accent-hover:#4f52e0;--accent2:#0891b2;--success:#059669;--warning:#d97706;--error:#dc2626;--running:#7c3aed;--extracting:#0e7490;--rezipping:#c2410c;--shadow:0 4px 24px rgba(0,0,0,.08)}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+.app{display:grid;grid-template-rows:60px 1fr;min-height:100vh}
+.header{background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 24px;gap:16px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+.logo{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:700;color:var(--accent)}
+.header-spacer{flex:1}
+.stats-bar{display:flex;gap:10px;align-items:center}
+.stat-pill{background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-size:12px;font-weight:600;display:flex;gap:6px;align-items:center}
+.stat-dot{width:8px;height:8px;border-radius:50%}
+.dot-queued{background:var(--text-muted)}.dot-running{background:var(--running);animation:blink 1.5s infinite}.dot-completed{background:var(--success)}.dot-failed{background:var(--error)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.main{display:grid;grid-template-columns:300px 1fr;height:calc(100vh - 60px)}
+.sidebar{background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.content{display:flex;flex-direction:column;overflow:hidden}
+.tabs{display:flex;border-bottom:1px solid var(--border);padding:0 16px}
+.tab{padding:13px 14px;font-size:13px;font-weight:600;cursor:pointer;color:var(--text-muted);border-bottom:2px solid transparent;transition:all .2s;display:flex;align-items:center;gap:6px}
+.tab:hover{color:var(--text)}.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab-badge{background:var(--accent);color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;min-width:18px;text-align:center}
+.sidebar-section{padding:16px;border-bottom:1px solid var(--border)}
+.sidebar-section h3{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:10px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:all .2s;white-space:nowrap}
+.btn:disabled{opacity:.5;cursor:not-allowed;transform:none!important}
+.btn-primary{background:var(--accent);color:#fff}.btn-primary:not(:disabled):hover{background:var(--accent-hover);transform:translateY(-1px)}
+.btn-outline{background:transparent;color:var(--text);border:1px solid var(--border)}.btn-outline:not(:disabled):hover{background:var(--surface2)}
+.btn-danger{background:var(--error);color:#fff}.btn-success{background:var(--success);color:#fff}.btn-success:not(:disabled):hover{filter:brightness(1.1)}
+.btn-sm{padding:5px 10px;font-size:12px}.btn-full{width:100%;justify-content:center}
+.btn-group{display:flex;flex-direction:column;gap:8px}
+.queue-list{flex:1;overflow-y:auto;padding:8px}
+.queue-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:200px;color:var(--text-muted);gap:8px;font-size:13px;text-align:center}
+.job-item{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;cursor:pointer;transition:all .2s;position:relative;overflow:hidden}
+.job-item:hover{border-color:var(--accent)}.job-item.selected{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--surface2))}
+.job-item::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:3px 0 0 3px}
+.job-item.queued::before{background:var(--text-muted)}.job-item.running::before{background:var(--running)}.job-item.extracting::before{background:var(--extracting)}.job-item.rezipping::before{background:var(--rezipping)}.job-item.completed::before{background:var(--success)}.job-item.failed::before{background:var(--error)}.job-item.cancelled::before,.job-item.skipped::before{background:var(--text-muted)}
+.job-name{font-size:12px;font-weight:600;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.job-game{font-size:10px;color:var(--accent2);margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.job-meta{display:flex;align-items:center;justify-content:space-between;gap:4px;flex-wrap:wrap}
+.job-status{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;padding:2px 8px;border-radius:10px}
+.status-queued{background:rgba(107,114,128,.2);color:var(--text-muted)}.status-running{background:rgba(139,92,246,.2);color:var(--running)}.status-extracting{background:rgba(6,182,212,.2);color:var(--extracting)}.status-rezipping{background:rgba(249,115,22,.2);color:var(--rezipping)}.status-completed{background:rgba(16,185,129,.15);color:var(--success)}.status-failed{background:rgba(239,68,68,.15);color:var(--error)}.status-cancelled,.status-skipped{background:rgba(107,114,128,.15);color:var(--text-muted)}
+.bad-dump-badge{font-size:9px;font-weight:700;background:rgba(239,68,68,.2);color:var(--error);padding:1px 6px;border-radius:8px}
+.progress-bar-wrap{margin-top:8px;background:var(--border);border-radius:4px;height:4px;overflow:hidden}
+.progress-bar{height:100%;border-radius:4px;transition:width .5s ease;background:var(--accent)}
+.progress-bar.running{background:linear-gradient(90deg,var(--running),var(--accent2));animation:shimmer 2s infinite;background-size:200% 100%}
+.progress-bar.extracting{background:linear-gradient(90deg,var(--extracting),var(--accent2));animation:shimmer 2s infinite;background-size:200% 100%}
+.progress-bar.rezipping{background:linear-gradient(90deg,var(--rezipping),var(--warning));animation:shimmer 2s infinite;background-size:200% 100%}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.detail-panel{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.detail-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;color:var(--text-muted);gap:12px}
+.detail-header{padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:12px}
+.detail-title{flex:1}.detail-title h2{font-size:16px;font-weight:700;margin-bottom:4px}.detail-title p{font-size:12px;color:var(--text-muted)}
+.detail-tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.detail-tag{font-size:10px;padding:2px 8px;border-radius:8px;font-weight:600}
+.tag-disc{background:rgba(99,102,241,.15);color:var(--accent)}.tag-game{background:rgba(34,211,238,.15);color:var(--accent2)}.tag-bad{background:rgba(239,68,68,.15);color:var(--error)}
+.detail-actions{display:flex;gap:8px;flex-shrink:0}
+.log-container{flex:1;overflow-y:auto;padding:16px 24px;font-family:'Cascadia Code','JetBrains Mono','Courier New',monospace;font-size:12px;line-height:1.8}
+.log-entry{display:flex;gap:12px}.log-time{color:var(--text-muted);flex-shrink:0}.log-msg{color:var(--text)}.log-msg.error{color:var(--error)}.log-msg.warn{color:var(--warning)}.log-msg.success{color:var(--success)}
+.settings-panel{flex:1;overflow-y:auto;padding:24px}
+.settings-section{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px}
+.settings-section h3{font-size:14px;font-weight:700;margin-bottom:4px}.settings-section .section-desc{font-size:12px;color:var(--text-muted);margin-bottom:16px}
+.form-group{margin-bottom:16px}.form-group:last-child{margin-bottom:0}
+label{display:block;font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+input[type="text"],input[type="number"],select{width:100%;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;transition:border-color .2s}
+input:focus,select:focus{outline:none;border-color:var(--accent)}
+.folder-input-group{display:flex;gap:8px}.folder-input-group input{flex:1}
+.toggle-group{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)}.toggle-group:last-child{border-bottom:none}
+.toggle-info{flex:1}.toggle-info .toggle-label{font-size:13px;font-weight:600}.toggle-info .toggle-desc{font-size:12px;color:var(--text-muted);margin-top:2px}
+.toggle{position:relative;width:44px;height:24px;flex-shrink:0}.toggle input{opacity:0;width:0;height:0}
+.toggle-slider{position:absolute;inset:0;background:var(--border);border-radius:12px;cursor:pointer;transition:background .2s}
+.toggle-slider::before{content:'';position:absolute;width:18px;height:18px;left:3px;top:3px;background:#fff;border-radius:50%;transition:transform .2s}
+.toggle input:checked+.toggle-slider{background:var(--accent)}.toggle input:checked+.toggle-slider::before{transform:translateX(20px)}
+.note-box{background:color-mix(in srgb,var(--warning) 10%,var(--surface2));border:1px solid color-mix(in srgb,var(--warning) 30%,var(--border));border-radius:8px;padding:12px;font-size:12px;color:var(--warning);margin-top:12px}
+.note-box strong{display:block;margin-bottom:4px}
+.info-box{background:color-mix(in srgb,var(--accent2) 8%,var(--surface2));border:1px solid color-mix(in srgb,var(--accent2) 25%,var(--border));border-radius:8px;padding:12px;font-size:12px;color:var(--accent2);margin-top:12px}
+.info-box strong{display:block;margin-bottom:4px}
+.settings-footer{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
+/* History */
+.history-panel{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.history-toolbar{padding:16px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.history-toolbar h2{font-size:15px;font-weight:700}
+.history-list{flex:1;overflow-y:auto}
+.history-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:300px;color:var(--text-muted);gap:10px}
+.history-item{padding:14px 24px;border-bottom:1px solid var(--border);display:grid;grid-template-columns:1fr auto;gap:8px;transition:background .15s}
+.history-item:hover{background:var(--surface2)}
+.history-name{font-size:13px;font-weight:600;margin-bottom:2px}.history-game{font-size:12px;color:var(--accent2);margin-bottom:4px}.history-meta{font-size:11px;color:var(--text-muted);display:flex;gap:10px;flex-wrap:wrap}.history-status{font-size:11px;font-weight:700;text-transform:uppercase;padding:2px 8px;border-radius:8px;align-self:start}
+/* Modal base */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:1000;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow)}
+/* Conflict modal */
+.conflict-modal{max-width:440px;width:90%;padding:28px}
+.conflict-modal h3{font-size:18px;font-weight:700;margin-bottom:8px}
+.conflict-modal p{font-size:13px;color:var(--text-muted);margin-bottom:20px;line-height:1.6}
+.modal-file{background:var(--surface2);border-radius:8px;padding:10px 14px;font-family:monospace;font-size:12px;margin-bottom:20px;border:1px solid var(--border);word-break:break-all}
+.modal-check{display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:20px;cursor:pointer}.modal-check input{accent-color:var(--accent)}
+.modal-actions{display:flex;gap:10px;justify-content:flex-end}
+/* Scan modal */
+.scan-modal{width:min(800px,95vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden}
+.scan-modal-header{padding:20px 24px 14px;border-bottom:1px solid var(--border);flex-shrink:0}
+.scan-modal-header h3{font-size:16px;font-weight:700;margin-bottom:4px}
+.scan-modal-header p{font-size:13px;color:var(--text-muted);margin:0}
+.scan-toolbar{padding:12px 24px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:center;flex-shrink:0;flex-wrap:wrap}
+.search-wrap{flex:1;min-width:200px;position:relative}
+.search-wrap input{width:100%;padding:8px 12px 8px 34px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px}
+.search-wrap input:focus{outline:none;border-color:var(--accent)}
+.search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);pointer-events:none}
+.scan-count-pill{font-size:12px;color:var(--text-muted);white-space:nowrap;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:4px 12px}
+.scan-body{flex:1;overflow-y:auto}
+.scan-empty-msg{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 0;color:var(--text-muted);gap:10px;font-size:13px;text-align:center}
+/* Scan items */
+.scan-item{display:grid;grid-template-columns:20px 22px 1fr auto auto auto;align-items:center;gap:10px;padding:10px 20px;border-bottom:1px solid var(--border);transition:background .12s}
+.scan-item:hover{background:var(--surface2)}
+.scan-item.already{opacity:.55}
+.scan-item input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px;cursor:pointer}
+.scan-item input[type=checkbox]:disabled{cursor:not-allowed}
+.scan-icon{font-size:16px;text-align:center}
+.scan-info{min-width:0}
+.scan-name{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scan-path{font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.scan-size{font-size:11px;color:var(--text-muted);white-space:nowrap}
+.scan-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;white-space:nowrap}
+.badge-arc{background:rgba(99,102,241,.15);color:var(--accent)}
+.badge-iso{background:rgba(34,211,238,.15);color:var(--accent2)}
+.badge-queued{background:rgba(16,185,129,.15);color:var(--success)}
+.scan-remove{background:none;border:none;color:var(--text-muted);cursor:pointer;padding:5px 7px;border-radius:6px;font-size:16px;line-height:1;transition:all .15s;display:flex;align-items:center;justify-content:center}
+.scan-remove:hover{background:rgba(239,68,68,.15);color:var(--error)}
+.scan-footer{padding:14px 20px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-shrink:0;background:var(--surface)}
+.scan-footer-left{font-size:13px;color:var(--text-muted)}
+.scan-footer-left strong{color:var(--text)}
+/* Folder browser */
+.folder-path{font-size:11px;color:var(--text-muted);font-family:monospace;padding:8px 12px;background:var(--surface2);border-radius:8px;margin-bottom:8px}
+.folder-browser{max-height:340px;overflow-y:auto;margin:12px 0}
+.folder-item{display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;cursor:pointer;transition:background .12s;font-size:13px}
+.folder-item:hover{background:var(--surface2)}
+.theme-toggle{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;cursor:pointer;color:var(--text);font-size:18px;display:flex;align-items:center}
+::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}::-webkit-scrollbar-thumb:hover{background:var(--text-muted)}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="header">
+    <div class="logo">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>
+      CHD Converter
+    </div>
+    <div class="header-spacer"></div>
+    <div class="stats-bar">
+      <div class="stat-pill"><span class="stat-dot dot-queued"></span><span id="statQueued">0</span> queued</div>
+      <div class="stat-pill"><span class="stat-dot dot-running"></span><span id="statRunning">0</span> active</div>
+      <div class="stat-pill"><span class="stat-dot dot-completed"></span><span id="statCompleted">0</span> done</div>
+      <div class="stat-pill"><span class="stat-dot dot-failed"></span><span id="statFailed">0</span> failed</div>
+    </div>
+    <button class="theme-toggle" id="themeBtn" title="Toggle theme">☀️</button>
+  </header>
+
+  <div class="main">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <h3>Actions</h3>
+        <div class="btn-group">
+          <button class="btn btn-primary btn-full" id="scanBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            Scan Source Folder
+          </button>
+          <button class="btn btn-outline btn-full" id="clearBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+            Clear Completed
+          </button>
+        </div>
+      </div>
+      <div class="tabs" style="padding:0 12px">
+        <div class="tab active" data-qtab="all" id="tabAll">All <span class="tab-badge" id="badgeAll">0</span></div>
+        <div class="tab" data-qtab="running" id="tabRunning">Active</div>
+        <div class="tab" data-qtab="queued" id="tabQueued">Queued</div>
+        <div class="tab" data-qtab="done" id="tabDone">Done</div>
+      </div>
+      <div class="queue-list" id="queueList">
+        <div class="queue-empty" id="queueEmpty">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          No jobs yet.<br>Scan your source folder to start.
+        </div>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="tabs" id="mainTabs">
+        <div class="tab active" data-mtab="queue" id="mainTabQueue">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+          Job Details
+        </div>
+        <div class="tab" data-mtab="history" id="mainTabHistory">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          History
+        </div>
+        <div class="tab" data-mtab="settings" id="mainTabSettings">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+          Settings
+        </div>
+      </div>
+
+      <!-- Job details -->
+      <div id="viewQueue" class="detail-panel">
+        <div class="detail-empty" id="detailEmpty">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+          <div style="text-align:center"><div style="font-weight:600;margin-bottom:4px">Select a job to view details</div><div style="font-size:12px">Scan your source folder to discover convertible files</div></div>
+        </div>
+        <div id="detailContent" style="display:none;flex-direction:column;flex:1;overflow:hidden">
+          <div class="detail-header">
+            <div class="detail-title">
+              <h2 id="detailFilename"></h2>
+              <p id="detailMeta"></p>
+              <div class="detail-tags" id="detailTags"></div>
+            </div>
+            <div class="detail-actions" id="detailActions"></div>
+          </div>
+          <div class="log-container" id="logContainer"></div>
+        </div>
+      </div>
+
+      <!-- History -->
+      <div id="viewHistory" style="display:none;flex:1;overflow:hidden;flex-direction:column">
+        <div class="history-panel">
+          <div class="history-toolbar">
+            <h2>📋 Conversion History</h2>
+            <button class="btn btn-danger btn-sm" id="clearHistoryBtn">🗑 Clear History</button>
+          </div>
+          <div id="historyList" class="history-list"></div>
+        </div>
+      </div>
+
+      <!-- Settings -->
+      <div id="viewSettings" style="display:none;flex:1;overflow:hidden">
+        <div class="settings-panel">
+          <div class="settings-section">
+            <h3>📁 Folders</h3><p class="section-desc">Source and destination paths (Docker volume paths)</p>
+            <div class="form-group"><label>Source Folder</label><div class="folder-input-group"><input type="text" id="settSourceFolder" placeholder="/source"><button class="btn btn-outline btn-sm" data-browse="source">Browse</button></div></div>
+            <div class="form-group"><label>Destination Folder</label><div class="folder-input-group"><input type="text" id="settDestFolder" placeholder="/destination"><button class="btn btn-outline btn-sm" data-browse="dest">Browse</button></div></div>
+          </div>
+          <div class="settings-section">
+            <h3>⚙️ Conversion Options</h3><p class="section-desc">Control how files are converted</p>
+            <div class="form-group"><label>CHD Type Override</label><select id="settChdType"><option value="auto">Auto-detect (recommended)</option><option value="cd">Always use CD (createcd)</option><option value="hd">Always use HD (createhd)</option></select></div>
+            <div class="form-group"><label>If CHD Already Exists</label><select id="settOverwrite"><option value="ask">Ask me (with apply-to-queue option)</option><option value="skip">Always skip</option><option value="overwrite">Always overwrite</option></select></div>
+            <div class="form-group"><label>Concurrent Workers</label><input type="number" id="settWorkers" min="1" max="8" value="1"><div style="font-size:11px;color:var(--text-muted);margin-top:4px">Simultaneous conversions.</div></div>
+          </div>
+          <div class="settings-section">
+            <h3>📦 Archive Handling</h3><p class="section-desc">Settings for .7z, .zip, .rar archives</p>
+            <div class="toggle-group"><div class="toggle-info"><div class="toggle-label">Extract from archives</div><div class="toggle-desc">Automatically extract before converting</div></div><label class="toggle"><input type="checkbox" id="settExtract"><span class="toggle-slider"></span></label></div>
+            <div class="toggle-group"><div class="toggle-info"><div class="toggle-label">Delete archive after conversion</div><div class="toggle-desc">Remove original archive once done</div></div><label class="toggle"><input type="checkbox" id="settDeleteArchive"><span class="toggle-slider"></span></label></div>
+            <div class="toggle-group"><div class="toggle-info"><div class="toggle-label">Rename output to archive name</div><div class="toggle-desc">Use archive filename instead of internal disc ID</div></div><label class="toggle"><input type="checkbox" id="settRenameArchive"><span class="toggle-slider"></span></label></div>
+          </div>
+          <div class="settings-section">
+            <h3>🗜️ Rezip Output</h3><p class="section-desc">Compress converted CHD back into a .7z</p>
+            <div class="toggle-group"><div class="toggle-info"><div class="toggle-label">Rezip CHD after conversion</div><div class="toggle-desc">Creates a .7z containing the CHD, then removes the standalone CHD</div></div><label class="toggle"><input type="checkbox" id="settRezip"><span class="toggle-slider"></span></label></div>
+            <div class="form-group" style="margin-top:12px"><label>7z Compression Level (1=fast, 9=smallest)</label><input type="number" id="settRezipLevel" min="1" max="9" value="5"></div>
+            <div id="rezipNote" class="note-box" style="display:none"><strong>⚠️ No standalone CHD in output</strong>Output folder will only contain .7z files — the .chd is deleted after archiving.</div>
+          </div>
+          <div class="settings-section">
+            <h3>🗑️ Source File Cleanup</h3><p class="section-desc">What happens to ISOs after conversion</p>
+            <div class="toggle-group"><div class="toggle-info"><div class="toggle-label">Delete ISO after conversion</div><div class="toggle-desc">Remove .iso/.img/.cue/.bin/.mdf/.nrg after CHD is created</div></div><label class="toggle"><input type="checkbox" id="settDeleteIso"><span class="toggle-slider"></span></label></div>
+          </div>
+          <div class="settings-section">
+            <h3>🎮 Game Name Lookup</h3><p class="section-desc">Identify PS2 games by disc ID and rename output files</p>
+            <div class="toggle-group"><div class="toggle-info"><div class="toggle-label">Look up game name from disc ID</div><div class="toggle-desc">Reads SLUS/SCES ID from filename or SYSTEM.CNF inside ISO</div></div><label class="toggle"><input type="checkbox" id="settLookup"><span class="toggle-slider"></span></label></div>
+            <div class="info-box"><strong>ℹ️ Database info</strong>~200 built-in PS2 titles. Add your own at <code>/config/ps2_db.json</code> as <code>{"SLUS-12345": "Game Name"}</code>.</div>
+          </div>
+          <div class="settings-section">
+            <h3>🔬 Bad Dump Detection</h3><p class="section-desc">Warn if an ISO looks corrupt before converting</p>
+            <div class="form-group"><label>Detection Mode</label><select id="settBadDump"><option value="off">Off</option><option value="size">Size check (fast)</option><option value="checksum">Size + MD5 checksum (slow)</option></select></div>
+          </div>
+          <div class="settings-section">
+            <h3>🔍 Auto Scan</h3><p class="section-desc">Automatically monitor source folder for new files</p>
+            <div class="toggle-group"><div class="toggle-info"><div class="toggle-label">Enable auto-scan</div><div class="toggle-desc">Periodically scan and add new files</div></div><label class="toggle"><input type="checkbox" id="settAutoScan"><span class="toggle-slider"></span></label></div>
+            <div class="toggle-group"><div class="toggle-info"><div class="toggle-label">Scan subdirectories</div><div class="toggle-desc">Look inside nested folders</div></div><label class="toggle"><input type="checkbox" id="settRecursive"><span class="toggle-slider"></span></label></div>
+            <div class="form-group" style="margin-top:12px"><label>Scan Interval (seconds)</label><input type="number" id="settScanInterval" min="10" max="86400" value="60"></div>
+          </div>
+          <div class="settings-footer">
+            <button class="btn btn-outline" id="resetSettBtn">Reset</button>
+            <button class="btn btn-primary" id="saveSettBtn">💾 Save Settings</button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- Conflict Modal -->
+<div class="modal-overlay" id="conflictModal" style="display:none">
+  <div class="modal conflict-modal">
+    <h3>⚠️ File Already Exists</h3>
+    <p>A CHD file with this name already exists. What would you like to do?</p>
+    <div class="modal-file" id="conflictFilename"></div>
+    <label class="modal-check"><input type="checkbox" id="conflictApplyAll"> Apply to all remaining conflicts</label>
+    <div class="modal-actions">
+      <button class="btn btn-outline" id="conflictSkip">Skip</button>
+      <button class="btn btn-primary" id="conflictOverwrite">Overwrite</button>
+    </div>
+  </div>
+</div>
+
+<!-- Scan Modal -->
+<div class="modal-overlay" id="scanModal" style="display:none">
+  <div class="modal scan-modal">
+    <div class="scan-modal-header">
+      <h3>🔍 Source Folder Contents</h3>
+      <p id="scanDesc">Scanning…</p>
+    </div>
+    <div class="scan-toolbar">
+      <div class="search-wrap">
+        <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="scanSearch" placeholder="Search files…">
+      </div>
+      <span class="scan-count-pill" id="scanCountPill">0 files</span>
+      <button class="btn btn-outline btn-sm" id="selectAllBtn">Select All</button>
+      <button class="btn btn-outline btn-sm" id="deselectAllBtn">Deselect All</button>
+    </div>
+    <div class="scan-body" id="scanBody">
+      <div class="scan-empty-msg">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        Scanning…
+      </div>
+    </div>
+    <div class="scan-footer">
+      <div class="scan-footer-left" id="scanFooterInfo"><strong>0</strong> files selected</div>
+      <div style="display:flex;gap:10px">
+        <button class="btn btn-outline" id="cancelScanBtn">Cancel</button>
+        <button class="btn btn-success" id="startConvBtn" disabled>▶ Start Conversion</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Folder Browser Modal -->
+<div class="modal-overlay" id="browserModal" style="display:none">
+  <div class="modal" style="max-width:500px;width:90%;padding:24px">
+    <h3 style="font-size:16px;font-weight:700;margin-bottom:16px">📁 Browse Folders</h3>
+    <div class="folder-path" id="browserPath">/</div>
+    <div class="folder-browser" id="folderBrowser"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" id="cancelBrowserBtn">Cancel</button>
+      <button class="btn btn-primary" id="selectFolderBtn">Select This Folder</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ────────────────────────────────────────────────────────
+let jobs = {}, selectedJobId = null, currentQueueTab = 'all';
+let currentConflictJobId = null;
+let browserTarget = null, browserCurrentPath = '/';
+let eventSource = null, settings = {};
+// Scan modal state — stored by index so no path-in-HTML issues
+let scanFiles = [];        // [{path, name, size, already_queued}]
+let removedIdx = new Set();// indices removed via X
+let filteredIdx = [];      // indices currently visible after search
+
+// ── SSE ─────────────────────────────────────────────────────────
+function connectSSE() {
+  if (eventSource) eventSource.close();
+  eventSource = new EventSource('/stream');
+  eventSource.addEventListener('init', e => {
+    const d = JSON.parse(e.data);
+    jobs = {}; d.jobs.forEach(j => jobs[j.id] = j);
+    settings = d.settings;
+    renderQueue(); updateStats(); applySettingsToForm();
+  });
+  eventSource.addEventListener('job_added',  e => { const j=JSON.parse(e.data); jobs[j.id]=j; renderQueue(); updateStats(); });
+  eventSource.addEventListener('job_update', e => { const j=JSON.parse(e.data); jobs[j.id]=j; renderJobItem(j); updateStats(); if(selectedJobId===j.id) updateDetailHeader(j); });
+  eventSource.addEventListener('job_log',    e => { const {job_id,entry}=JSON.parse(e.data); if(jobs[job_id]){jobs[job_id].log=jobs[job_id].log||[];jobs[job_id].log.push(entry);} if(selectedJobId===job_id) appendLogEntry(entry); });
+  eventSource.addEventListener('jobs_cleared', e => { JSON.parse(e.data).ids.forEach(id=>{if(id===selectedJobId){selectedJobId=null;showDetailEmpty();}delete jobs[id];}); renderQueue(); updateStats(); });
+  eventSource.addEventListener('conflict', e => { const {job_id,filename}=JSON.parse(e.data); currentConflictJobId=job_id; document.getElementById('conflictFilename').textContent=filename; document.getElementById('conflictModal').style.display='flex'; });
+  eventSource.addEventListener('history_cleared', ()=>{ if(document.getElementById('viewHistory').style.display!=='none') loadHistory(); });
+  eventSource.onerror = () => setTimeout(connectSSE, 3000);
+}
+
+// ── Conflict ─────────────────────────────────────────────────────
+function resolveConflict(resolution) {
+  const applyAll = document.getElementById('conflictApplyAll').checked;
+  fetch('/api/conflict/resolve',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({job_id:currentConflictJobId,resolution,apply_to_all:applyAll})});
+  document.getElementById('conflictModal').style.display='none';
+  document.getElementById('conflictApplyAll').checked=false;
+}
+
+// ── Queue ────────────────────────────────────────────────────────
+const STATUS_LABELS={queued:'QUEUED',extracting:'EXTRACTING',running:'RUNNING',rezipping:'REZIPPING',completed:'COMPLETED',failed:'FAILED',cancelled:'CANCELLED',skipped:'SKIPPED'};
+const ACTIVE_ST=['queued','extracting','running','rezipping','completed'];
+
+function getFilteredJobs() {
+  const all=Object.values(jobs);
+  if(currentQueueTab==='running') return all.filter(j=>['extracting','running','rezipping'].includes(j.status));
+  if(currentQueueTab==='queued')  return all.filter(j=>j.status==='queued');
+  if(currentQueueTab==='done')    return all.filter(j=>['completed','failed','cancelled','skipped'].includes(j.status));
+  return all;
+}
+
+function renderQueue() {
+  const list=document.getElementById('queueList');
+  const filtered=getFilteredJobs();
+  list.querySelectorAll('.job-item').forEach(el=>{ if(!filtered.find(j=>j.id===el.dataset.id)) el.remove(); });
+  document.getElementById('queueEmpty').style.display=filtered.length?'none':'flex';
+  filtered.sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+  filtered.forEach(job=>{
+    let el=list.querySelector(`[data-id="${job.id}"]`);
+    if(!el){el=document.createElement('div');el.className='job-item';el.dataset.id=job.id;list.appendChild(el);}
+    updateJobElement(el,job);
+  });
+  document.getElementById('badgeAll').textContent=Object.keys(jobs).length;
+}
+
+function updateJobElement(el,job) {
+  el.className=`job-item ${job.status}${selectedJobId===job.id?' selected':''}`;
+  const label=STATUS_LABELS[job.status]||job.status.toUpperCase();
+  const showProg=ACTIVE_ST.includes(job.status);
+  el.innerHTML=`
+    <div class="job-name" title="${esc(job.file_path)}">${esc(job.filename)}</div>
+    ${job.game_name?`<div class="job-game">🎮 ${esc(job.game_name)}</div>`:''}
+    <div class="job-meta">
+      <span class="job-status status-${job.status}">${label}</span>
+      ${job.chd_type_used?`<span style="font-size:10px;color:var(--text-muted)">${job.chd_type_used.toUpperCase()}</span>`:''}
+      ${job.bad_dump?'<span class="bad-dump-badge">⚠ BAD</span>':''}
+    </div>
+    ${showProg?`<div class="progress-bar-wrap"><div class="progress-bar ${job.status}" style="width:${job.progress}%"></div></div>`:''}
+  `;
+}
+
+function renderJobItem(job) {
+  const el=document.getElementById('queueList').querySelector(`[data-id="${job.id}"]`);
+  if(el) updateJobElement(el,job); else renderQueue();
+}
+
+function selectJob(jobId) {
+  selectedJobId=jobId;
+  document.querySelectorAll('.job-item').forEach(el=>el.classList.toggle('selected',el.dataset.id===jobId));
+  const job=jobs[jobId]; if(!job) return;
+  document.getElementById('detailEmpty').style.display='none';
+  document.getElementById('detailContent').style.display='flex';
+  updateDetailHeader(job); renderLog(job.log||[]);
+}
+
+function updateDetailHeader(job) {
+  document.getElementById('detailFilename').textContent=job.filename;
+  let meta=`Status: ${job.status}`;
+  if(job.chd_type_used) meta+=` · Type: ${job.chd_type_used.toUpperCase()}`;
+  if(job.progress>0&&job.status!=='completed') meta+=` · ${job.progress}%`;
+  if(job.output_path) meta+=` · → ${job.output_path}`;
+  document.getElementById('detailMeta').textContent=meta;
+  const tags=document.getElementById('detailTags'); tags.innerHTML='';
+  if(job.disc_id)   tags.innerHTML+=`<span class="detail-tag tag-disc">💿 ${esc(job.disc_id)}</span>`;
+  if(job.game_name) tags.innerHTML+=`<span class="detail-tag tag-game">🎮 ${esc(job.game_name)}</span>`;
+  if(job.bad_dump)  tags.innerHTML+=`<span class="detail-tag tag-bad">⚠️ ${esc(job.bad_dump_reason||'Bad dump')}</span>`;
+  const actions=document.getElementById('detailActions'); actions.innerHTML='';
+  if(job.status==='queued'){const b=document.createElement('button');b.className='btn btn-outline btn-sm';b.textContent='Cancel';b.onclick=()=>cancelJob(job.id);actions.appendChild(b);}
+  if(['failed','cancelled'].includes(job.status)){const b=document.createElement('button');b.className='btn btn-primary btn-sm';b.textContent='Retry';b.onclick=()=>retryJob(job.id);actions.appendChild(b);}
+}
+
+function showDetailEmpty(){document.getElementById('detailEmpty').style.display='flex';document.getElementById('detailContent').style.display='none';}
+
+function renderLog(log) {
+  const c=document.getElementById('logContainer'); c.innerHTML='';
+  if(!log.length){c.innerHTML='<div style="color:var(--text-muted);font-size:12px">Waiting for output…</div>';return;}
+  log.forEach(e=>appendLogEntry(e,false)); c.scrollTop=c.scrollHeight;
+}
+
+function appendLogEntry(entry,scroll=true) {
+  const c=document.getElementById('logContainer');
+  if(c.children[0]?.textContent?.includes('Waiting')) c.innerHTML='';
+  const d=document.createElement('div'); d.className='log-entry';
+  d.innerHTML=`<span class="log-time">${entry.time}</span><span class="log-msg ${entry.level||''}">${esc(entry.msg)}</span>`;
+  c.appendChild(d); if(scroll) c.scrollTop=c.scrollHeight;
+}
+
+function updateStats() {
+  const c={queued:0,running:0,completed:0,failed:0};
+  Object.values(jobs).forEach(j=>{
+    if(['extracting','running','rezipping'].includes(j.status)) c.running++;
+    else if(c[j.status]!==undefined) c[j.status]++;
+  });
+  ['queued','running','completed','failed'].forEach(k=>{
+    document.getElementById('stat'+k.charAt(0).toUpperCase()+k.slice(1)).textContent=c[k];
+  });
+}
+
+// ── Scan Modal ───────────────────────────────────────────────────
+const ARC_EXTS=['.7z','.zip','.rar','.tar','.gz','.tgz'];
+function isArc(name){return ARC_EXTS.some(e=>name.toLowerCase().endsWith(e));}
+
+function fmtSize(b){
+  if(!b||b===0) return '?';
+  if(b>1e9) return (b/1e9).toFixed(2)+' GB';
+  if(b>1e6) return (b/1e6).toFixed(1)+' MB';
+  return Math.round(b/1e3)+' KB';
+}
+
+async function openScanModal() {
+  scanFiles=[]; removedIdx=new Set(); filteredIdx=[];
+  document.getElementById('scanModal').style.display='flex';
+  document.getElementById('scanSearch').value='';
+  document.getElementById('scanDesc').textContent='Scanning source folder…';
+  document.getElementById('scanCountPill').textContent='…';
+  document.getElementById('startConvBtn').disabled=true;
+  document.getElementById('scanFooterInfo').innerHTML='<strong>0</strong> files selected';
+  document.getElementById('scanBody').innerHTML='<div class="scan-empty-msg"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>Scanning…</div>';
+
+  try {
+    const r = await fetch('/api/scan/preview');
+    if (!r.ok) throw new Error('HTTP '+r.status);
+    scanFiles = await r.json();
+    rebuildScanList();
+  } catch(err) {
+    document.getElementById('scanBody').innerHTML=`<div class="scan-empty-msg" style="color:var(--error)">❌ Scan failed: ${esc(String(err))}</div>`;
+    document.getElementById('scanDesc').textContent='Error scanning folder.';
+  }
+}
+
+function rebuildScanList() {
+  const q = document.getElementById('scanSearch').value.toLowerCase().trim();
+  filteredIdx = scanFiles
+    .map((f,i)=>i)
+    .filter(i => !removedIdx.has(i) && (!q || scanFiles[i].name.toLowerCase().includes(q)));
+
+  const total = scanFiles.length - removedIdx.size;
+  const newCount = scanFiles.filter((_,i)=>!removedIdx.has(i)&&!scanFiles[i].already_queued).length;
+  const alreadyCount = scanFiles.filter((_,i)=>!removedIdx.has(i)&&scanFiles[i].already_queued).length;
+  document.getElementById('scanDesc').textContent = total===0
+    ? 'No convertible files found in source folder.'
+    : `${total} file${total!==1?'s':''} found · ${newCount} new · ${alreadyCount} already in queue`;
+  document.getElementById('scanCountPill').textContent = `${filteredIdx.length} shown`;
+
+  const body = document.getElementById('scanBody');
+  if(!filteredIdx.length) {
+    body.innerHTML=`<div class="scan-empty-msg"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>${q?'No files match your search.':'No convertible files found.'}</div>`;
+    updateScanFooter(); return;
+  }
+
+  // Build rows — store index as data-idx, NO path in HTML attributes
+  body.innerHTML = filteredIdx.map(i => {
+    const f = scanFiles[i];
+    const arc = isArc(f.name);
+    const badgeClass = f.already_queued ? 'badge-queued' : arc ? 'badge-arc' : 'badge-iso';
+    const badgeText  = f.already_queued ? 'IN QUEUE' : arc ? 'ARCHIVE' : 'ISO';
+    const checked    = f.already_queued ? '' : 'checked';
+    const disabled   = f.already_queued ? 'disabled' : '';
+    return `<div class="scan-item${f.already_queued?' already':''}" data-idx="${i}">
+      <input type="checkbox" class="scan-cb" ${checked} ${disabled} data-idx="${i}">
+      <div class="scan-icon">${arc?'🗜️':'💿'}</div>
+      <div class="scan-info">
+        <div class="scan-name" title="${esc(f.path)}">${esc(f.name)}</div>
+        <div class="scan-path">${esc(f.path)}</div>
+      </div>
+      <div class="scan-size">${fmtSize(f.size)}</div>
+      <span class="scan-badge ${badgeClass}">${badgeText}</span>
+      <button class="scan-remove" data-idx="${i}" title="Remove from list">✕</button>
+    </div>`;
+  }).join('');
+
+  updateScanFooter();
+}
+
+// Event delegation — no inline onclick with paths
+document.getElementById('scanBody').addEventListener('change', e => {
+  if(e.target.classList.contains('scan-cb')) updateScanFooter();
+});
+
+document.getElementById('scanBody').addEventListener('click', e => {
+  const btn = e.target.closest('.scan-remove');
+  if(btn) { removedIdx.add(parseInt(btn.dataset.idx)); rebuildScanList(); }
+  const row = e.target.closest('.scan-item');
+  if(row && !e.target.closest('.scan-remove') && !e.target.closest('input')) {
+    const cb = row.querySelector('.scan-cb:not([disabled])');
+    if(cb){ cb.checked=!cb.checked; updateScanFooter(); }
+  }
+});
+
+document.getElementById('scanSearch').addEventListener('input', ()=>rebuildScanList());
+
+document.getElementById('selectAllBtn').addEventListener('click', ()=>{
+  document.querySelectorAll('.scan-cb:not([disabled])').forEach(cb=>cb.checked=true); updateScanFooter();
+});
+document.getElementById('deselectAllBtn').addEventListener('click', ()=>{
+  document.querySelectorAll('.scan-cb:not([disabled])').forEach(cb=>cb.checked=false); updateScanFooter();
+});
+
+function updateScanFooter() {
+  const checked = document.querySelectorAll('.scan-cb:checked:not([disabled])').length;
+  document.getElementById('scanFooterInfo').innerHTML=`<strong>${checked}</strong> file${checked!==1?'s':''} selected`;
+  document.getElementById('startConvBtn').disabled = checked===0;
+}
+
+async function startSelectedConversions() {
+  const paths = [];
+  document.querySelectorAll('.scan-cb:checked:not([disabled])').forEach(cb=>{
+    const idx = parseInt(cb.dataset.idx);
+    if(scanFiles[idx]) paths.push(scanFiles[idx].path);
+  });
+  if(!paths.length) return;
+  const btn=document.getElementById('startConvBtn');
+  btn.disabled=true; btn.textContent='Starting…';
+  try {
+    const r=await fetch('/api/jobs/queue_files',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paths})});
+    const d=await r.json();
+    closeScanModal();
+    switchMainTab('queue');
+    const sb=document.getElementById('scanBtn');
+    const orig=sb.innerHTML;
+    sb.textContent=`✅ ${d.added} file${d.added!==1?'s':''} queued`;
+    setTimeout(()=>sb.innerHTML=orig,3000);
+  } finally {
+    btn.disabled=false; btn.innerHTML='▶ Start Conversion';
+  }
+}
+
+function closeScanModal(){ document.getElementById('scanModal').style.display='none'; }
+
+// ── History ──────────────────────────────────────────────────────
+async function loadHistory() {
+  const r=await fetch('/api/history'); const entries=await r.json();
+  const list=document.getElementById('historyList');
+  if(!entries.length){
+    list.innerHTML='<div class="history-empty"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>No history yet.</div>';
+    return;
+  }
+  list.innerHTML=entries.map(e=>{
+    const ts=e.timestamp?new Date(e.timestamp).toLocaleString():'';
+    const out=e.rezip_path||e.output_path||'';
+    return `<div class="history-item">
+      <div>
+        <div class="history-name">${esc(e.filename||'')}</div>
+        ${e.game_name?`<div class="history-game">🎮 ${esc(e.game_name)}${e.disc_id?` · ${esc(e.disc_id)}`:''}</div>`:''}
+        <div class="history-meta">
+          <span>🕒 ${ts}</span>
+          ${e.chd_type_used?`<span>${e.chd_type_used.toUpperCase()}</span>`:''}
+          ${out?`<span title="${esc(out)}">📁 ${esc(out.split('/').pop())}</span>`:''}
+        </div>
+        ${e.bad_dump?`<div style="font-size:11px;color:var(--error);margin-top:3px">⚠️ ${esc(e.bad_dump_reason||'bad dump')}</div>`:''}
+      </div>
+      <div><span class="history-status status-${e.status}">${(e.status||'').toUpperCase()}</span></div>
+    </div>`;
+  }).join('');
+}
+
+// ── Actions ──────────────────────────────────────────────────────
+async function clearCompleted(){await fetch('/api/jobs/clear',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({statuses:['completed','cancelled','failed','skipped']})});}
+async function cancelJob(id){await fetch(`/api/jobs/${id}/cancel`,{method:'POST'});}
+async function retryJob(id){await fetch(`/api/jobs/${id}/retry`,{method:'POST'});}
+
+// ── Tabs ─────────────────────────────────────────────────────────
+document.querySelectorAll('[data-qtab]').forEach(tab=>{
+  tab.addEventListener('click',()=>{
+    currentQueueTab=tab.dataset.qtab;
+    document.querySelectorAll('[data-qtab]').forEach(t=>t.classList.toggle('active',t===tab));
+    renderQueue();
+  });
+});
+
+function switchMainTab(tab) {
+  document.querySelectorAll('[data-mtab]').forEach(t=>t.classList.toggle('active',t.dataset.mtab===tab));
+  document.getElementById('viewQueue').style.display    = tab==='queue'    ? 'flex'  : 'none';
+  document.getElementById('viewHistory').style.display  = tab==='history'  ? 'flex'  : 'none';
+  document.getElementById('viewSettings').style.display = tab==='settings' ? 'flex'  : 'none';
+  if(tab==='history') loadHistory();
+}
+document.querySelectorAll('[data-mtab]').forEach(tab=>{tab.addEventListener('click',()=>switchMainTab(tab.dataset.mtab));});
+document.getElementById('queueList').addEventListener('click', e=>{const item=e.target.closest('.job-item');if(item) selectJob(item.dataset.id);});
+
+// ── Settings ─────────────────────────────────────────────────────
+async function loadSettings(){const r=await fetch('/api/settings');settings=await r.json();applySettingsToForm();}
+
+function applySettingsToForm(){
+  const s=settings;
+  document.getElementById('settSourceFolder').value   = s.source_folder||'/source';
+  document.getElementById('settDestFolder').value     = s.destination_folder||'/destination';
+  document.getElementById('settChdType').value        = s.chd_type||'auto';
+  document.getElementById('settOverwrite').value      = s.overwrite_existing||'ask';
+  document.getElementById('settWorkers').value        = s.max_workers||1;
+  document.getElementById('settExtract').checked      = !!s.extract_archives;
+  document.getElementById('settDeleteArchive').checked= !!s.delete_archive_after;
+  document.getElementById('settRenameArchive').checked= !!s.rename_to_archive;
+  document.getElementById('settDeleteIso').checked    = !!s.delete_iso_after;
+  document.getElementById('settAutoScan').checked     = !!s.auto_scan;
+  document.getElementById('settRecursive').checked    = s.recursive_scan!==false;
+  document.getElementById('settScanInterval').value   = s.scan_interval||60;
+  document.getElementById('settRezip').checked        = !!s.rezip_after_conversion;
+  document.getElementById('settRezipLevel').value     = s.rezip_compression_level||5;
+  document.getElementById('settLookup').checked       = !!s.lookup_game_name;
+  document.getElementById('settBadDump').value        = s.bad_dump_detection||'off';
+  updateNotes();
+}
+
+function collectSettings(){
+  return {
+    source_folder:           document.getElementById('settSourceFolder').value,
+    destination_folder:      document.getElementById('settDestFolder').value,
+    chd_type:                document.getElementById('settChdType').value,
+    overwrite_existing:      document.getElementById('settOverwrite').value,
+    max_workers:             parseInt(document.getElementById('settWorkers').value)||1,
+    extract_archives:        document.getElementById('settExtract').checked,
+    delete_archive_after:    document.getElementById('settDeleteArchive').checked,
+    rename_to_archive:       document.getElementById('settRenameArchive').checked,
+    delete_iso_after:        document.getElementById('settDeleteIso').checked,
+    auto_scan:               document.getElementById('settAutoScan').checked,
+    recursive_scan:          document.getElementById('settRecursive').checked,
+    scan_interval:           parseInt(document.getElementById('settScanInterval').value)||60,
+    rezip_after_conversion:  document.getElementById('settRezip').checked,
+    rezip_compression_level: parseInt(document.getElementById('settRezipLevel').value)||5,
+    lookup_game_name:        document.getElementById('settLookup').checked,
+    bad_dump_detection:      document.getElementById('settBadDump').value,
+  };
+}
+
+function updateNotes(){
+  document.getElementById('rezipNote').style.display=document.getElementById('settRezip').checked?'block':'none';
+}
+
+document.getElementById('settRezip').addEventListener('change',updateNotes);
+document.getElementById('saveSettBtn').addEventListener('click', async ()=>{
+  const s=collectSettings();
+  await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(s)});
+  settings={...settings,...s};
+  const btn=document.getElementById('saveSettBtn');
+  btn.textContent='✅ Saved!'; setTimeout(()=>btn.textContent='💾 Save Settings',2000);
+  updateNotes();
+});
+document.getElementById('resetSettBtn').addEventListener('click',loadSettings);
+
+// ── Folder browser ───────────────────────────────────────────────
+async function openBrowser(target){
+  browserTarget=target;
+  browserCurrentPath=target==='source'?(settings.source_folder||'/'):(settings.destination_folder||'/');
+  document.getElementById('browserModal').style.display='flex';
+  await loadBrowserPath(browserCurrentPath);
+}
+async function loadBrowserPath(path){
+  const r=await fetch(`/api/browse?path=${encodeURIComponent(path)}`);
+  const d=await r.json(); if(d.error){alert(d.error);return;}
+  browserCurrentPath=d.path;
+  document.getElementById('browserPath').textContent=d.path;
+  const b=document.getElementById('folderBrowser'); b.innerHTML='';
+  if(d.parent&&d.parent!==d.path){const u=document.createElement('div');u.className='folder-item';u.innerHTML='<span>📂</span> ../ (up)';u.onclick=()=>loadBrowserPath(d.parent);b.appendChild(u);}
+  d.entries.forEach(entry=>{
+    const el=document.createElement('div');el.className='folder-item';el.innerHTML=`<span>📁</span> ${esc(entry.name)}`;
+    el.ondblclick=()=>loadBrowserPath(entry.path);
+    el.onclick=()=>{b.querySelectorAll('.folder-item').forEach(e=>e.style.background='');el.style.background='var(--surface2)';browserCurrentPath=entry.path;document.getElementById('browserPath').textContent=entry.path;};
+    b.appendChild(el);
+  });
+}
+
+document.querySelectorAll('[data-browse]').forEach(btn=>{btn.addEventListener('click',()=>openBrowser(btn.dataset.browse));});
+document.getElementById('selectFolderBtn').addEventListener('click',()=>{
+  document.getElementById(browserTarget==='source'?'settSourceFolder':'settDestFolder').value=browserCurrentPath;
+  document.getElementById('browserModal').style.display='none';
+});
+document.getElementById('cancelBrowserBtn').addEventListener('click',()=>document.getElementById('browserModal').style.display='none');
+
+// ── Wire up all buttons ───────────────────────────────────────────
+document.getElementById('scanBtn').addEventListener('click', openScanModal);
+document.getElementById('clearBtn').addEventListener('click', clearCompleted);
+document.getElementById('cancelScanBtn').addEventListener('click', closeScanModal);
+document.getElementById('startConvBtn').addEventListener('click', startSelectedConversions);
+document.getElementById('conflictSkip').addEventListener('click', ()=>resolveConflict('skip'));
+document.getElementById('conflictOverwrite').addEventListener('click', ()=>resolveConflict('overwrite'));
+document.getElementById('clearHistoryBtn').addEventListener('click', async ()=>{
+  if(!confirm('Clear all conversion history?')) return;
+  await fetch('/api/history/clear',{method:'POST'}); loadHistory();
+});
+document.getElementById('themeBtn').addEventListener('click',()=>{
+  const isDark=document.documentElement.getAttribute('data-theme')==='dark';
+  document.documentElement.setAttribute('data-theme',isDark?'light':'dark');
+  document.getElementById('themeBtn').textContent=isDark?'🌙':'☀️';
+  fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dark_mode:!isDark})});
+});
+
+// ── Helpers ───────────────────────────────────────────────────────
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+// ── Init ─────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', ()=>{
+  connectSSE();
+  setTimeout(()=>{
+    if(settings.dark_mode===false){
+      document.documentElement.setAttribute('data-theme','light');
+      document.getElementById('themeBtn').textContent='🌙';
+    }
+  },800);
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+version: "3.8"
+services:
+  chd-converter:
+    build: .
+    container_name: chd-converter
+    ports:
+      - "9292:9292"
+    volumes:
+      - /path/to/source:/source
+      - /path/to/destination:/destination
+      - /path/to/config:/config
+    restart: unless-stopped
