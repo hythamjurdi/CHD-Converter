@@ -57,7 +57,7 @@ services:
 
 ## Unraid
 
-Available in **Community Applications** — search for `CHD Converter`.
+Pending approval in **Community Applications**
 
 Map your source folder (ISOs/archives), destination folder (CHD output), and an appdata path for config. The web UI will be available on port 9292.
 
