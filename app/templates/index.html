@@ -1617,6 +1617,7 @@ function registerRAListener() {
   });
 
   eventSource.addEventListener('ra_scan_done', e => {
+    stopRAPoll();
     const p = JSON.parse(e.data);
     document.getElementById('raLiveStatus').style.display = 'none';
     // Re-enable scan button
@@ -1714,6 +1715,7 @@ document.getElementById('raScanBtn').addEventListener('click', async () => {
   const liveBar = document.getElementById('raLiveStatus');
   liveBar.style.display = 'flex';
   document.getElementById('raLiveText').textContent = 'Initializing…';
+  startRAPoll();
   try {
     const r = await fetch('/api/ra/scan', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -1777,6 +1779,71 @@ async function raRestoreState() {
 }
 
 registerRAListener();
+
+// On page load: restore any in-progress scan state immediately
+(async () => {
+  try {
+    const d = await fetch('/api/ra/status').then(r => r.json());
+    const results = d.results || [];
+    const p = d.progress || {};
+    if (results.length === 0) return;
+    results.forEach(item => { raResults[item.path] = item; });
+    // Only render if RA tab is visible
+    if (document.getElementById('viewRA').style.display !== 'none') {
+      renderRAList();
+      document.getElementById('raSummaryBar').style.display = 'flex';
+      updateRASummary();
+    }
+    if (p.running) {
+      const btn = document.getElementById('raScanBtn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Scanning…'; }
+      const liveBar = document.getElementById('raLiveStatus');
+      const liveEl  = document.getElementById('raLiveText');
+      liveBar.style.display = 'flex';
+      liveEl.textContent = p.current
+        ? `[${p.done}/${p.total}] Hashing: ${p.current}`
+        : `[${p.done}/${p.total}] Scanning…`;
+      startRAPoll();
+    }
+  } catch(e) {}
+})();
+
+// Poll /api/ra/status while a scan is running — catches up after page refresh
+let raPollInterval = null;
+function startRAPoll() {
+  if (raPollInterval) return;
+  raPollInterval = setInterval(async () => {
+    try {
+      const d = await fetch('/api/ra/status').then(r => r.json());
+      const p = d.progress || {};
+      const results = d.results || [];
+      results.forEach(item => { raResults[item.path] = item; });
+      if (document.getElementById('viewRA').style.display !== 'none') {
+        renderRAList();
+        updateRASummary();
+      }
+      const liveEl = document.getElementById('raLiveText');
+      if (p.running) {
+        document.getElementById('raLiveStatus').style.display = 'flex';
+        liveEl.textContent = p.current
+          ? `[${p.done}/${p.total}] Hashing: ${p.current}`
+          : `[${p.done}/${p.total}] Scanning…`;
+      } else {
+        stopRAPoll();
+        document.getElementById('raLiveStatus').style.display = 'none';
+        const btn = document.getElementById('raScanBtn');
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Scan';
+        }
+      }
+    } catch(e) {}
+  }, 3000);
+}
+function stopRAPoll() {
+  clearInterval(raPollInterval);
+  raPollInterval = null;
+}
 </script>
 
 <!-- Batch Complete Report Modal -->
