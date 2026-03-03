@@ -472,6 +472,13 @@ class ConversionWorker:
                         os.remove(file_path)
                         log(f"Deleted source archive: {os.path.basename(file_path)}", "warn")
 
+                    # RA hash the output CHD(s) if enabled
+                    if success_count > 0:
+                        for i2, src2 in enumerate(convertible):
+                            base2   = self._out_base(src2, file_path, None)
+                            chd2    = os.path.join(dest_folder, base2 + ".chd")
+                            if os.path.exists(chd2):
+                                self._try_ra_hash(job_id, chd2, log)
                     self.update_job(job_id, status="completed", progress=100)
                     log(f"Completed {success_count}/{total} conversions", "success")
 
@@ -545,6 +552,7 @@ class ConversionWorker:
                     self.update_job(job_id, rezip_path=out_7z, output_path=out_7z)
                     log(f"Archived: {os.path.basename(out_7z)}", "success")
 
+                self._try_ra_hash(job_id, out_chd, log)
                 self.update_job(job_id, status="completed", progress=100)
                 log(f"Done: {base}.chd", "success")
 
@@ -552,6 +560,37 @@ class ConversionWorker:
             logger.exception(f"Job {job_id} failed")
             self.update_job(job_id, status="failed", error=str(e), progress=0)
             log(f"Error: {e}", "error")
+
+    def _try_ra_hash(self, job_id, chd_path, log):
+        """Compute RA hash for a finished CHD if the setting is enabled. Non-blocking."""
+        if not self.settings.get("ra_hash_on_convert", False):
+            return
+        if not os.path.exists(chd_path):
+            return
+        try:
+            from ra_hasher import compute_ra_hash, lookup_ra_hash
+            log(f"[RA] Computing hash for {os.path.basename(chd_path)}…")
+            md5, exe, err = compute_ra_hash(chd_path)
+            if err:
+                log(f"[RA] Hash error: {err}", "warn")
+                return
+            log(f"[RA] Hash: {md5}  ({exe})")
+            ra = lookup_ra_hash(
+                md5,
+                ra_username=self.settings.get("ra_username", ""),
+                ra_api_key=self.settings.get("ra_api_key", "")
+            )
+            if ra.get("error"):
+                log(f"[RA] API error: {ra['error']}", "warn")
+            elif ra["found"]:
+                title = ra.get("game_title") or f"Game ID {ra['game_id']}"
+                log(f"[RA] ✅ Recognized: {title} (ID {ra['game_id']})", "success")
+                self.update_job(job_id, ra_hash=md5, ra_game_id=ra["game_id"], ra_game_title=title)
+            else:
+                log(f"[RA] ⚠️  Hash not found in RA database — achievements may not work", "warn")
+                self.update_job(job_id, ra_hash=md5, ra_game_id=None)
+        except Exception as e:
+            log(f"[RA] Hash failed: {e}", "warn")
 
     def _handle_conflict(self, job_id, out_path, log):
         if not os.path.exists(out_path):

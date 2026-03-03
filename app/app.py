@@ -25,6 +25,9 @@ DEFAULT_SETTINGS = {
     "rezip_compression_level":   5,
     "lookup_game_name":          False,
     "bad_dump_detection":        "off",   # off | size | checksum
+    "ra_hash_on_convert":        False,
+    "ra_username":               "",
+    "ra_api_key":                "",
 }
 
 job_queue            = queue.Queue()
@@ -38,8 +41,11 @@ apply_to_all_resolution = [None]
 queue_paused = [False]
 settings             = {}
 scanner_instance     = [None]
+ra_scan_jobs         = {}   # path -> {status, hash, exe, game_id, game_title, error}
+ra_scan_lock         = threading.Lock()
+ra_scan_thread       = [None]
 
-APP_VERSION = "1.0.7"
+APP_VERSION = "1.1.0"
 
 @app.route("/version")
 def get_version():
@@ -344,6 +350,99 @@ def stop_queue():
     for job in cancelled:
         broadcast_event("job_update", job)
     return jsonify({"cancelled": len(cancelled)})
+
+
+# ── RetroAchievements ──────────────────────────────────────────────
+
+@app.route("/api/ra/scan", methods=["POST"])
+def ra_scan():
+    """Start RA hash scan of a folder. Non-blocking — streams results via SSE."""
+    folder = request.json.get("folder", settings.get("destination_folder", "/destination"))
+    force  = request.json.get("force", False)
+
+    if not os.path.isdir(folder):
+        return jsonify({"error": f"Folder not found: {folder}"}), 400
+
+    # Find all CHD files
+    chd_files = []
+    for root, _, files in os.walk(folder):
+        for f in files:
+            if f.lower().endswith(".chd"):
+                chd_files.append(os.path.join(root, f))
+    chd_files.sort()
+
+    with ra_scan_lock:
+        # Reset jobs that aren't already done (unless force)
+        for p in chd_files:
+            if force or p not in ra_scan_jobs or ra_scan_jobs[p]["status"] not in ("matched","not_found","error"):
+                ra_scan_jobs[p] = {"status": "pending", "hash": None, "exe": None,
+                                   "game_id": None, "game_title": None, "error": None,
+                                   "filename": os.path.basename(p)}
+
+    # Launch background thread if not already running
+    def run_scan():
+        pending = [p for p in chd_files if ra_scan_jobs.get(p, {}).get("status") == "pending"]
+        for path in pending:
+            with ra_scan_lock:
+                if ra_scan_jobs.get(path, {}).get("status") != "pending":
+                    continue
+                ra_scan_jobs[path]["status"] = "hashing"
+            broadcast_event("ra_update", {**ra_scan_jobs[path], "path": path})
+
+            from ra_hasher import compute_ra_hash, lookup_ra_hash
+            md5, exe, err = compute_ra_hash(path)
+
+            entry = ra_scan_jobs[path]
+            if err:
+                entry.update({"status": "error", "error": err})
+            else:
+                entry.update({"hash": md5, "exe": exe})
+                ra_result = lookup_ra_hash(
+                    md5,
+                    ra_username=settings.get("ra_username", ""),
+                    ra_api_key=settings.get("ra_api_key", "")
+                )
+                if ra_result.get("error"):
+                    entry.update({"status": "api_error", "error": ra_result["error"]})
+                elif ra_result["found"]:
+                    entry.update({"status": "matched",
+                                  "game_id": ra_result["game_id"],
+                                  "game_title": ra_result["game_title"]})
+                else:
+                    entry["status"] = "not_found"
+
+            with ra_scan_lock:
+                ra_scan_jobs[path] = entry
+            broadcast_event("ra_update", {**entry, "path": path})
+
+    t = threading.Thread(target=run_scan, daemon=True)
+    with ra_scan_lock:
+        ra_scan_thread[0] = t
+    t.start()
+
+    return jsonify({"queued": len(chd_files), "files": [os.path.basename(p) for p in chd_files]})
+
+
+@app.route("/api/ra/results", methods=["GET"])
+def ra_results():
+    with ra_scan_lock:
+        return jsonify([{**v, "path": k} for k, v in ra_scan_jobs.items()])
+
+
+@app.route("/api/ra/single", methods=["POST"])
+def ra_single():
+    """Hash a single CHD and return result synchronously."""
+    path = request.json.get("path")
+    if not path or not os.path.exists(path):
+        return jsonify({"error": "File not found"}), 400
+    from ra_hasher import compute_ra_hash, lookup_ra_hash
+    md5, exe, err = compute_ra_hash(path)
+    if err:
+        return jsonify({"error": err}), 400
+    ra_result = lookup_ra_hash(md5,
+        ra_username=settings.get("ra_username",""),
+        ra_api_key=settings.get("ra_api_key",""))
+    return jsonify({"hash": md5, "exe": exe, **ra_result})
 
 # ── SSE stream ────────────────────────────────────────────────────
 

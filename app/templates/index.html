@@ -174,7 +174,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>
       CHD Converter
     </div>
-    <span style="font-size:11px;font-weight:700;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:3px 10px;color:var(--text-muted);letter-spacing:.5px">v1.0.7</span>
+    <span style="font-size:11px;font-weight:700;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:3px 10px;color:var(--text-muted);letter-spacing:.5px">v1.1.0</span>
     <div class="header-spacer"></div>
     <div class="stats-bar">
       <div class="stat-pill" style="cursor:pointer" onclick="switchSidebarFilter('active')"><span class="stat-dot dot-running"></span><span id="statActive">0</span> active</div>
@@ -240,6 +240,9 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
           History
         </div>
+        <div class="tab" data-mtab="ra" id="mainTabRA">
+          🏆 RA Hashes
+        </div>
         <div class="tab" data-mtab="settings" id="mainTabSettings">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
           Settings
@@ -297,6 +300,52 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
         </div>
       </div>
 
+
+      <div id="viewRA" style="display:none;flex:1;overflow:hidden;flex-direction:column">
+        <div style="display:flex;flex-direction:column;height:100%;overflow:hidden">
+
+          <!-- Toolbar -->
+          <div style="padding:16px 24px;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <div style="flex:1;min-width:0">
+              <h2 style="font-size:15px;font-weight:700;margin-bottom:2px">🏆 RetroAchievements Hash Scanner</h2>
+              <p style="font-size:12px;color:var(--text-muted)">Verify your PS2 CHDs are recognized by RetroAchievements</p>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <input type="text" id="raFolder" placeholder="/destination" style="width:260px;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
+              <button class="btn btn-primary" id="raScanBtn">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                Scan Folder
+              </button>
+            </div>
+          </div>
+
+          <!-- Summary bar -->
+          <div id="raSummaryBar" style="display:none;padding:10px 24px;border-bottom:1px solid var(--border);display:flex;gap:16px;font-size:12px;font-weight:600;flex-shrink:0;flex-wrap:wrap">
+            <span>📦 <span id="raTotalCount">0</span> CHDs</span>
+            <span style="color:var(--success)">✅ <span id="raMatchedCount">0</span> recognized</span>
+            <span style="color:var(--error)">❌ <span id="raNotFoundCount">0</span> not found</span>
+            <span style="color:var(--text-muted)">⏳ <span id="raPendingCount">0</span> pending</span>
+            <span style="color:var(--warning)">⚠️ <span id="raErrorCount">0</span> errors</span>
+          </div>
+
+          <!-- Filter tabs -->
+          <div style="display:flex;border-bottom:1px solid var(--border);padding:0 16px;flex-shrink:0;overflow-x:auto">
+            <div class="ra-filter-tab active" data-rf="all"     style="padding:9px 12px;font-size:12px;font-weight:600;cursor:pointer;color:var(--text-muted);border-bottom:2px solid transparent;white-space:nowrap;transition:all .2s">All</div>
+            <div class="ra-filter-tab"        data-rf="matched" style="padding:9px 12px;font-size:12px;font-weight:600;cursor:pointer;color:var(--text-muted);border-bottom:2px solid transparent;white-space:nowrap;transition:all .2s">✅ Recognized</div>
+            <div class="ra-filter-tab"        data-rf="not_found" style="padding:9px 12px;font-size:12px;font-weight:600;cursor:pointer;color:var(--text-muted);border-bottom:2px solid transparent;white-space:nowrap;transition:all .2s">❌ Not Found</div>
+            <div class="ra-filter-tab"        data-rf="hashing" style="padding:9px 12px;font-size:12px;font-weight:600;cursor:pointer;color:var(--text-muted);border-bottom:2px solid transparent;white-space:nowrap;transition:all .2s">⏳ In Progress</div>
+            <div class="ra-filter-tab"        data-rf="error"   style="padding:9px 12px;font-size:12px;font-weight:600;cursor:pointer;color:var(--text-muted);border-bottom:2px solid transparent;white-space:nowrap;transition:all .2s">⚠️ Errors</div>
+          </div>
+
+          <!-- Results list -->
+          <div style="flex:1;overflow-y:auto" id="raResultsList">
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:300px;color:var(--text-muted);gap:10px;font-size:13px;text-align:center" id="raEmptyMsg">
+              <span style="font-size:40px">🏆</span>
+              Enter a folder path and click Scan to check your CHDs
+            </div>
+          </div>
+        </div>
+      </div>
       <div id="viewSettings" style="display:none;flex:1;overflow:hidden">
         <div class="settings-panel">
           <div class="settings-section">
@@ -340,6 +389,14 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
             <div class="toggle-group"><div class="toggle-info"><div class="toggle-label">Enable auto-scan</div></div><label class="toggle"><input type="checkbox" id="settAutoScan"><span class="toggle-slider"></span></label></div>
             <div class="toggle-group"><div class="toggle-info"><div class="toggle-label">Scan subdirectories</div></div><label class="toggle"><input type="checkbox" id="settRecursive"><span class="toggle-slider"></span></label></div>
             <div class="form-group" style="margin-top:12px"><label>Scan Interval (seconds)</label><input type="number" id="settScanInterval" min="10" max="86400" value="60"></div>
+          </div>
+
+          <div class="settings-section">
+            <h3>🏆 RetroAchievements</h3><p class="section-desc">Verify CHDs are recognized by RetroAchievements</p>
+            <div class="toggle-group"><div class="toggle-info"><div class="toggle-label">Compute RA hash after each conversion</div><div class="toggle-desc">Non-blocking — runs after CHD is created, logs result</div></div><label class="toggle"><input type="checkbox" id="settRAHash"><span class="toggle-slider"></span></label></div>
+            <div class="form-group" style="margin-top:12px"><label>RA Username (optional — for game name lookup)</label><input type="text" id="settRAUser" placeholder="your_ra_username"></div>
+            <div class="form-group"><label>RA API Key (optional — get from retroachievements.org/settings)</label><input type="text" id="settRAKey" placeholder="your_api_key" style="font-family:monospace"></div>
+            <div class="info-box"><strong>ℹ️ Without API credentials</strong>Hashes are still checked — you'll see ✅ recognized or ❌ not found. Game names require a free RA account API key.</div>
           </div>
           <div class="settings-footer">
             <button class="btn btn-outline" id="resetSettBtn">Reset</button>
@@ -980,6 +1037,7 @@ function switchMainTab(tab) {
   document.querySelectorAll('[data-mtab]').forEach(t => t.classList.toggle('active', t.dataset.mtab === tab));
   document.getElementById('viewQueue').style.display    = tab==='queue'    ? 'flex' : 'none';
   document.getElementById('viewHistory').style.display  = tab==='history'  ? 'flex' : 'none';
+  document.getElementById('viewRA').style.display       = tab==='ra'       ? 'flex' : 'none';
   document.getElementById('viewSettings').style.display = tab==='settings' ? 'flex' : 'none';
   if (tab === 'history') loadHistory();
 }
@@ -1027,6 +1085,9 @@ function collectSettings() {
     rezip_compression_level: parseInt(document.getElementById('settRezipLevel').value)||5,
     lookup_game_name:        document.getElementById('settLookup').checked,
     bad_dump_detection:      document.getElementById('settBadDump').value,
+    ra_hash_on_convert:      document.getElementById('settRAHash').checked,
+    ra_username:             document.getElementById('settRAUser').value,
+    ra_api_key:              document.getElementById('settRAKey').value,
   };
 }
 
@@ -1162,6 +1223,157 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.style.userSelect = '';
   });
 })();
+
+// ── RetroAchievements ─────────────────────────────────────────────
+let raResults  = {};  // path -> result object
+let raFilter   = 'all';
+
+const RA_STATUS_LABEL = {
+  pending:   '⏳ Pending',
+  hashing:   '⏳ Hashing…',
+  matched:   '✅ Recognized',
+  not_found: '❌ Not Found',
+  error:     '⚠️ Error',
+  api_error: '⚠️ API Error',
+};
+const RA_STATUS_COLOR = {
+  matched:   'var(--success)',
+  not_found: 'var(--error)',
+  error:     'var(--warning)',
+  api_error: 'var(--warning)',
+  hashing:   'var(--accent)',
+  pending:   'var(--text-muted)',
+};
+
+// SSE handler for live updates
+eventSource && eventSource.addEventListener && null; // ensure registered after init
+
+function registerRAListener() {
+  if (!eventSource) return;
+  eventSource.addEventListener('ra_update', e => {
+    const d = JSON.parse(e.data);
+    raResults[d.path] = d;
+    updateRARow(d);
+    updateRASummary();
+  });
+}
+
+function updateRARow(item) {
+  const existing = document.getElementById('ra-row-' + btoa(item.path).replace(/=/g,''));
+  if (existing) {
+    existing.replaceWith(makeRARow(item));
+  } else if (raMatchesFilter(item)) {
+    const list = document.getElementById('raResultsList');
+    document.getElementById('raEmptyMsg').style.display = 'none';
+    list.appendChild(makeRARow(item));
+  }
+}
+
+function raMatchesFilter(item) {
+  if (raFilter === 'all') return true;
+  if (raFilter === 'error') return item.status === 'error' || item.status === 'api_error';
+  return item.status === raFilter;
+}
+
+function makeRARow(item) {
+  const id = 'ra-row-' + btoa(item.path).replace(/=/g,'');
+  const color = RA_STATUS_COLOR[item.status] || 'var(--text-muted)';
+  const label = RA_STATUS_LABEL[item.status] || item.status;
+  const div = document.createElement('div');
+  div.id = id;
+  div.style.cssText = 'display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;padding:10px 24px;border-bottom:1px solid var(--border);font-size:13px;transition:background .12s';
+  div.onmouseenter = () => div.style.background = 'var(--surface2)';
+  div.onmouseleave = () => div.style.background = '';
+
+  const nameCol = `<div>
+    <div style="font-weight:600">${esc(item.filename || item.path.split('/').pop())}</div>
+    ${item.game_title ? `<div style="font-size:11px;color:var(--accent2)">🎮 ${esc(item.game_title)}</div>` : ''}
+    ${item.exe       ? `<div style="font-size:10px;color:var(--text-muted);font-family:monospace">${esc(item.exe)}</div>` : ''}
+    ${item.error     ? `<div style="font-size:11px;color:var(--warning)">${esc(item.error)}</div>` : ''}
+  </div>`;
+
+  const hashCol = item.hash
+    ? `<div style="font-family:monospace;font-size:11px;color:var(--text-muted);white-space:nowrap" title="${esc(item.hash)}">${item.hash.slice(0,8)}…</div>`
+    : '<div></div>';
+
+  const statusCol = `<div style="font-size:12px;font-weight:700;color:${color};white-space:nowrap">${label}</div>`;
+
+  div.innerHTML = nameCol + hashCol + statusCol;
+  return div;
+}
+
+function renderRAList() {
+  const list = document.getElementById('raResultsList');
+  list.querySelectorAll('[id^="ra-row-"]').forEach(el => el.remove());
+  const items = Object.values(raResults).filter(raMatchesFilter);
+  document.getElementById('raEmptyMsg').style.display = items.length ? 'none' : 'flex';
+  items.forEach(item => list.appendChild(makeRARow(item)));
+  updateRASummary();
+}
+
+function updateRASummary() {
+  const all = Object.values(raResults);
+  if (!all.length) { document.getElementById('raSummaryBar').style.display = 'none'; return; }
+  document.getElementById('raSummaryBar').style.display = 'flex';
+  document.getElementById('raTotalCount').textContent   = all.length;
+  document.getElementById('raMatchedCount').textContent = all.filter(r=>r.status==='matched').length;
+  document.getElementById('raNotFoundCount').textContent= all.filter(r=>r.status==='not_found').length;
+  document.getElementById('raPendingCount').textContent = all.filter(r=>['pending','hashing'].includes(r.status)).length;
+  document.getElementById('raErrorCount').textContent   = all.filter(r=>['error','api_error'].includes(r.status)).length;
+}
+
+document.querySelectorAll('.ra-filter-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    raFilter = tab.dataset.rf;
+    document.querySelectorAll('.ra-filter-tab').forEach(t => {
+      t.style.color = t === tab ? 'var(--accent)' : 'var(--text-muted)';
+      t.style.borderBottomColor = t === tab ? 'var(--accent)' : 'transparent';
+    });
+    renderRAList();
+  });
+});
+
+document.getElementById('raScanBtn').addEventListener('click', async () => {
+  const folder = document.getElementById('raFolder').value.trim() || '/destination';
+  const btn = document.getElementById('raScanBtn');
+  btn.disabled = true; btn.textContent = 'Scanning…';
+  raResults = {};
+  document.getElementById('raResultsList').querySelectorAll('[id^="ra-row-"]').forEach(el=>el.remove());
+  document.getElementById('raEmptyMsg').style.display = 'flex';
+  document.getElementById('raEmptyMsg').innerHTML = '<span style="font-size:40px">⏳</span>Scanning folder…';
+  try {
+    const r = await fetch('/api/ra/scan', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({folder, force: true})
+    });
+    const d = await r.json();
+    if (d.error) {
+      document.getElementById('raEmptyMsg').innerHTML = `<span style="font-size:40px">❌</span>${esc(d.error)}`;
+    } else {
+      // Pre-populate pending entries
+      d.files.forEach(f => {
+        const path = folder.replace(/\/+$/, '') + '/' + f;
+        raResults[path] = {path, filename: f, status: 'pending'};
+      });
+      renderRAList();
+      document.getElementById('raSummaryBar').style.display = 'flex';
+    }
+  } catch(e) {
+    document.getElementById('raEmptyMsg').innerHTML = `<span style="font-size:40px">❌</span>${esc(String(e))}`;
+  }
+  btn.disabled = false;
+  btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Scan Folder';
+});
+
+// Set default folder from settings when tab opens
+document.getElementById('mainTabRA').addEventListener('click', () => {
+  if (!document.getElementById('raFolder').value) {
+    document.getElementById('raFolder').value = settings.destination_folder || '/destination';
+  }
+  updateRASummary();
+});
+
+registerRAListener();
 </script>
 </body>
 </html>
