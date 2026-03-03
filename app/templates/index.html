@@ -173,7 +173,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>
       CHD Converter
     </div>
-    <span style="font-size:11px;font-weight:700;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:3px 10px;color:var(--text-muted);letter-spacing:.5px">v1.0.5</span>
+    <span style="font-size:11px;font-weight:700;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:3px 10px;color:var(--text-muted);letter-spacing:.5px">v1.0.6</span>
     <div class="header-spacer"></div>
     <div class="stats-bar">
       <div class="stat-pill"><span class="stat-dot dot-running"></span><span id="statActive">0</span> active</div>
@@ -248,21 +248,23 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
       <div id="viewQueue" class="detail-panel">
         <div class="detail-empty" id="detailEmpty">
           <!-- Now playing disc -->
-          <div id="nowPlaying" style="display:none;flex-direction:column;align-items:center;gap:16px;text-align:center">
-            <div id="discSpinner" style="position:relative;width:100px;height:100px">
-              <svg width="100" height="100" viewBox="0 0 100 100" style="animation:spinDisc 2.5s linear infinite">
-                <circle cx="50" cy="50" r="46" fill="#1a1d27" stroke="var(--border)" stroke-width="2"/>
-                <circle cx="50" cy="50" r="38" fill="none" stroke="var(--border)" stroke-width="1" stroke-dasharray="4 4"/>
-                <circle cx="50" cy="50" r="28" fill="none" stroke="var(--border)" stroke-width="1" stroke-dasharray="3 5"/>
-                <circle cx="50" cy="50" r="18" fill="none" stroke="var(--border)" stroke-width="1"/>
-                <circle cx="50" cy="50" r="6" fill="var(--accent)" opacity=".8"/>
-                <circle cx="50" cy="50" r="3" fill="var(--surface)"/>
+          <div id="nowPlaying" style="display:none;flex-direction:column;align-items:center;gap:28px;text-align:center">
+            <div id="discSpinner" style="position:relative;width:180px;height:180px">
+              <svg width="180" height="180" viewBox="0 0 180 180" style="animation:spinDisc 3s linear infinite;filter:drop-shadow(0 0 18px rgba(99,102,241,.25))">
+                <circle cx="90" cy="90" r="86" fill="color-mix(in srgb,var(--accent) 6%,var(--surface))" stroke="var(--border)" stroke-width="2"/>
+                <circle cx="90" cy="90" r="74" fill="none" stroke="var(--border)" stroke-width="1" stroke-dasharray="6 5"/>
+                <circle cx="90" cy="90" r="60" fill="none" stroke="var(--border)" stroke-width="1" stroke-dasharray="4 7"/>
+                <circle cx="90" cy="90" r="46" fill="none" stroke="var(--border)" stroke-width="1" stroke-dasharray="3 6"/>
+                <circle cx="90" cy="90" r="32" fill="none" stroke="var(--border)" stroke-width="1"/>
+                <circle cx="90" cy="90" r="22" fill="color-mix(in srgb,var(--accent) 15%,var(--surface))"/>
+                <circle cx="90" cy="90" r="10" fill="var(--accent)" opacity=".9"/>
+                <circle cx="90" cy="90" r="5" fill="var(--surface)"/>
               </svg>
             </div>
             <div>
-              <div style="font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:var(--text-muted);margin-bottom:6px">Now Converting</div>
-              <div id="nowPlayingName" style="font-size:16px;font-weight:700;color:var(--text);max-width:400px"></div>
-              <div id="nowPlayingMeta" style="font-size:12px;color:var(--text-muted);margin-top:4px"></div>
+              <div style="font-size:11px;text-transform:uppercase;letter-spacing:2px;color:var(--text-muted);margin-bottom:10px">Now Converting</div>
+              <div id="nowPlayingName" style="font-size:22px;font-weight:700;color:var(--text);max-width:500px;line-height:1.3"></div>
+              <div id="nowPlayingMeta" style="font-size:13px;color:var(--accent);margin-top:8px;font-weight:600"></div>
             </div>
           </div>
           <!-- Idle screen -->
@@ -408,6 +410,7 @@ let jobs = {};           // only loaded jobs (not necessarily all)
 let totalCounts = {};    // server-side counts by status
 let totalJobs = 0;
 let selectedJobId = null;
+let userWantsOverview = false; // true when user explicitly clicked away
 let currentFilter = 'active';
 let currentPage = 1;
 const PAGE_SIZE = 50;
@@ -473,8 +476,8 @@ function connectSSE() {
       updateJobElement(el, j);
     }
 
-    // Auto-select the newly active job if nothing is selected
-    if (ACTIVE.includes(j.status) && !selectedJobId) {
+    // Auto-select the newly active job only if user hasn't explicitly chosen the overview
+    if (ACTIVE.includes(j.status) && !selectedJobId && !userWantsOverview) {
       selectedJobId = j.id;
       document.querySelectorAll('.job-item').forEach(e2 => e2.classList.toggle('selected', e2.dataset.id === j.id));
       updateDetailHeader(j);
@@ -564,6 +567,7 @@ function updateStats() {
   document.getElementById('cntAll').textContent     = fmt(totalJobs);
 }
 
+let _wasActive = false;
 function updateNowPlaying() {
   if (selectedJobId) return; // user has something selected, don't override
   const ACTIVE = ['running','extracting','rezipping'];
@@ -571,6 +575,7 @@ function updateNowPlaying() {
   const nowPlaying = document.getElementById('nowPlaying');
   const idleScreen = document.getElementById('idleScreen');
   if (active) {
+    _wasActive = true;
     nowPlaying.style.display = 'flex';
     idleScreen.style.display = 'none';
     document.getElementById('nowPlayingName').textContent = active.game_name || active.filename || '';
@@ -580,6 +585,9 @@ function updateNowPlaying() {
       (statusMap[active.status] || active.status) + pct +
       (active.chd_type_used ? ` · ${active.chd_type_used.toUpperCase()}` : '');
   } else {
+    // Queue just went idle — reset override so next job auto-selects again
+    if (_wasActive) userWantsOverview = false;
+    _wasActive = false;
     nowPlaying.style.display = 'none';
     idleScreen.style.display = 'flex';
   }
@@ -731,9 +739,12 @@ document.getElementById('queueList').addEventListener('click', async e => {
   // Click on empty space OR click the already-selected job → deselect and return to overview
   if (!item || item.dataset.id === selectedJobId) {
     document.querySelectorAll('.job-item').forEach(el => el.classList.remove('selected'));
+    userWantsOverview = true;
     showDetailEmpty();
     return;
   }
+  // User picked a specific job — clear the overview preference
+  userWantsOverview = false;
 
   const jobId = item.dataset.id;
   selectedJobId = jobId;
