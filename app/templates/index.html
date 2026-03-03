@@ -174,7 +174,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>
       CHD Converter
     </div>
-    <span style="font-size:11px;font-weight:700;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:3px 10px;color:var(--text-muted);letter-spacing:.5px">v1.1.0</span>
+    <span style="font-size:11px;font-weight:700;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:3px 10px;color:var(--text-muted);letter-spacing:.5px">v1.1.1</span>
     <div class="header-spacer"></div>
     <div class="stats-bar">
       <div class="stat-pill" style="cursor:pointer" onclick="switchSidebarFilter('active')"><span class="stat-dot dot-running"></span><span id="statActive">0</span> active</div>
@@ -394,9 +394,27 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
           <div class="settings-section">
             <h3>🏆 RetroAchievements</h3><p class="section-desc">Verify CHDs are recognized by RetroAchievements</p>
             <div class="toggle-group"><div class="toggle-info"><div class="toggle-label">Compute RA hash after each conversion</div><div class="toggle-desc">Non-blocking — runs after CHD is created, logs result</div></div><label class="toggle"><input type="checkbox" id="settRAHash"><span class="toggle-slider"></span></label></div>
-            <div class="form-group" style="margin-top:12px"><label>RA Username (optional — for game name lookup)</label><input type="text" id="settRAUser" placeholder="your_ra_username"></div>
-            <div class="form-group"><label>RA API Key (optional — get from retroachievements.org/settings)</label><input type="text" id="settRAKey" placeholder="your_api_key" style="font-family:monospace"></div>
-            <div class="info-box"><strong>ℹ️ Without API credentials</strong>Hashes are still checked — you'll see ✅ recognized or ❌ not found. Game names require a free RA account API key.</div>
+
+            <div style="margin-top:18px;display:flex;align-items:flex-end;gap:12px">
+              <div style="flex:1;display:flex;flex-direction:column;gap:10px">
+                <div class="form-group" style="margin:0"><label>RA Username</label><input type="text" id="settRAUser" placeholder="Your RetroAchievements username" autocomplete="off"></div>
+                <div class="form-group" style="margin:0"><label>API Key</label><input type="text" id="settRAKey" placeholder="Your API key" style="font-family:monospace;letter-spacing:.5px" autocomplete="off"></div>
+                <div style="font-size:11px;color:var(--text-muted)">Get your API key at <a href="https://retroachievements.org/settings" target="_blank" style="color:var(--accent2)">retroachievements.org/settings</a></div>
+              </div>
+              <button id="raStatusBtn" title="Check RA connection" onclick="checkRAStatus()" style="flex-shrink:0;width:44px;height:44px;border-radius:50%;border:2px solid var(--border);background:var(--surface2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:22px;transition:all .2s;margin-bottom:22px">❓</button>
+            </div>
+
+            <div id="raStatusPopover" style="display:none;margin-top:10px;border-radius:10px;padding:14px 16px;border:1px solid var(--border);background:var(--surface2)">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+                <div style="min-width:0">
+                  <div id="raStatusTitle" style="font-size:13px;font-weight:700;margin-bottom:3px"></div>
+                  <div id="raStatusMsg" style="font-size:12px;color:var(--text-muted);line-height:1.5"></div>
+                </div>
+                <button class="btn btn-outline btn-sm" onclick="checkRAStatus()">↻ Recheck</button>
+              </div>
+            </div>
+
+            <div class="info-box" style="margin-top:12px"><strong>ℹ️ Without API credentials</strong>Hashes are still checked — you will see recognized or not found. Game name lookup requires an API key.</div>
           </div>
           <div class="settings-footer">
             <button class="btn btn-outline" id="resetSettBtn">Reset</button>
@@ -496,6 +514,7 @@ function connectSSE() {
     updateStats();
     renderQueue();
     updateNowPlaying();
+    setTimeout(autoCheckRA, 800);
   });
 
   eventSource.addEventListener('job_added', e => {
@@ -1374,6 +1393,39 @@ document.getElementById('mainTabRA').addEventListener('click', () => {
 });
 
 registerRAListener();
+
+async function checkRAStatus() {
+  var btn=document.getElementById('raStatusBtn');
+  var pop=document.getElementById('raStatusPopover');
+  var title=document.getElementById('raStatusTitle');
+  var msg=document.getElementById('raStatusMsg');
+  if(!btn) return;
+  btn.textContent='⏳'; btn.style.opacity='0.6'; btn.style.borderColor='var(--border)';
+  pop.style.display='block'; title.textContent='Checking...'; msg.textContent='';
+  await saveSettings();
+  try {
+    var r=await fetch('/api/ra/verify',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username:document.getElementById('settRAUser').value.trim(),
+        api_key:document.getElementById('settRAKey').value.trim()})});
+    var d=await r.json();
+    var STATUS={linked:{icon:'✅',color:'var(--success)',label:'✅ Linked to RetroAchievements'},
+      invalid:{icon:'❌',color:'var(--error)',label:'❌ Invalid credentials'},
+      no_credentials:{icon:'⚠',color:'var(--warning)',label:'⚠ API reachable but no credentials'},
+      error:{icon:'❌',color:'var(--error)',label:'❌ Connection failed'},
+      api_error:{icon:'❌',color:'var(--error)',label:'❌ API error'}};
+    var s=STATUS[d.status]||{icon:'❓',color:'var(--text-muted)',label:d.status};
+    btn.textContent=s.icon; btn.style.opacity='1'; btn.style.borderColor=s.color;
+    title.textContent=s.label; title.style.color=s.color; msg.textContent=d.message||'';
+  } catch(e) {
+    btn.textContent='❌'; btn.style.opacity='1';
+    title.textContent='Request failed'; msg.textContent=String(e);
+  }
+}
+function autoCheckRA() {
+  var u=document.getElementById('settRAUser'),k=document.getElementById('settRAKey');
+  if(u&&k&&u.value.trim()&&k.value.trim()) checkRAStatus();
+}
+
 </script>
 </body>
 </html>
