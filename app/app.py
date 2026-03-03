@@ -316,7 +316,9 @@ def clear_history():
 # ── SSE stream ────────────────────────────────────────────────────
 
 ACTIVE_STATUSES = {"queued", "running", "extracting", "rezipping"}
-INIT_MAX_COMPLETED = 50  # completed jobs to include in init payload
+INIT_MAX_QUEUED    = 20   # queued jobs to include in init (rest load on demand)
+INIT_MAX_COMPLETED = 50   # completed jobs to include in init
+INIT_MAX_FAILED    = 20   # failed/cancelled jobs to include in init
 
 def _slim_job(job):
     """Strip log from job for SSE init — logs are fetched on demand."""
@@ -333,15 +335,22 @@ def stream():
             with jobs_lock:
                 all_jobs = list(jobs.values())
 
-            # Split into active and terminal
-            active   = [j for j in all_jobs if j["status"] in ACTIVE_STATUSES]
-            failed   = [j for j in all_jobs if j["status"] in ("failed", "cancelled")]
+            # Truly in-progress (never capped)
+            running  = [j for j in all_jobs if j["status"] in ("running", "extracting", "rezipping")]
+            # Queued — cap to first N (they're worked FIFO so show the front)
+            queued   = [j for j in all_jobs if j["status"] == "queued"][:INIT_MAX_QUEUED]
+            # Terminal — most recent first, capped
+            failed   = sorted(
+                [j for j in all_jobs if j["status"] in ("failed", "cancelled")],
+                key=lambda j: j.get("updated_at", ""), reverse=True
+            )[:INIT_MAX_FAILED]
             done     = sorted(
                 [j for j in all_jobs if j["status"] in ("completed", "skipped")],
                 key=lambda j: j.get("updated_at", ""), reverse=True
             )[:INIT_MAX_COMPLETED]
 
-            init_jobs = active + failed + done
+            init_jobs = running + queued + failed + done
+
             total_counts = {}
             for j in all_jobs:
                 s = j["status"]
