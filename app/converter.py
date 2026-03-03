@@ -284,14 +284,35 @@ class ConversionWorker:
 
     def run(self):
         while not self._stop:
+            job_id = None
             try:
-                job_id = self.job_queue.get(timeout=1)
+                try:
+                    job_id = self.job_queue.get(timeout=1)
+                except Exception:
+                    continue
                 with self.jobs_lock:
-                    if job_id not in self.jobs: continue
-                    if self.jobs[job_id]["status"] == "cancelled": continue
+                    if job_id not in self.jobs:
+                        self.job_queue.task_done()
+                        continue
+                    if self.jobs[job_id]["status"] == "cancelled":
+                        self.job_queue.task_done()
+                        continue
                 self.process_job(job_id)
-            except Exception:
-                pass
+            except Exception as e:
+                # Should never reach here — process_job has its own handler.
+                # Belt-and-suspenders: make sure job doesn't stay stuck in running.
+                logger.exception(f"Worker outer exception for job {job_id}: {e}")
+                if job_id:
+                    try:
+                        self.update_job(job_id, status="failed", error=f"Unexpected error: {e}", progress=0)
+                    except Exception:
+                        pass
+            finally:
+                if job_id is not None:
+                    try:
+                        self.job_queue.task_done()
+                    except Exception:
+                        pass
 
     def _out_base(self, src_path, archive_path, game_name):
         """Determine the output base filename."""

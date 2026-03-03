@@ -38,7 +38,7 @@ apply_to_all_resolution = [None]
 settings             = {}
 scanner_instance     = [None]
 
-APP_VERSION = "1.0.2"
+APP_VERSION = "1.0.3"
 
 @app.route("/version")
 def get_version():
