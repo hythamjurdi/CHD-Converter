@@ -35,10 +35,11 @@ sse_lock             = threading.Lock()
 conflict_events      = {}
 conflict_resolutions = {}
 apply_to_all_resolution = [None]
+queue_paused = [False]
 settings             = {}
 scanner_instance     = [None]
 
-APP_VERSION = "1.0.3"
+APP_VERSION = "1.0.4"
 
 @app.route("/version")
 def get_version():
@@ -320,6 +321,30 @@ def clear_history():
     broadcast_event("history_cleared", {})
     return jsonify({"success": True})
 
+
+@app.route("/api/queue/pause", methods=["POST"])
+def pause_queue():
+    queue_paused[0] = True
+    return jsonify({"paused": True})
+
+@app.route("/api/queue/resume", methods=["POST"])
+def resume_queue():
+    queue_paused[0] = False
+    return jsonify({"paused": False})
+
+@app.route("/api/queue/stop", methods=["POST"])
+def stop_queue():
+    queue_paused[0] = False
+    cancelled = []
+    with jobs_lock:
+        for jid, job in jobs.items():
+            if job["status"] == "queued":
+                job["status"] = "cancelled"
+                cancelled.append(dict(job))
+    for job in cancelled:
+        broadcast_event("job_update", job)
+    return jsonify({"cancelled": len(cancelled)})
+
 # ── SSE stream ────────────────────────────────────────────────────
 
 ACTIVE_STATUSES = {"queued", "running", "extracting", "rezipping"}
@@ -390,7 +415,7 @@ if __name__ == "__main__":
     from scanner   import FolderScanner
 
     w = ConversionWorker(job_queue, jobs, jobs_lock, settings, update_job, log_to_job,
-                         broadcast_event, conflict_events, conflict_resolutions, apply_to_all_resolution)
+                         broadcast_event, conflict_events, conflict_resolutions, apply_to_all_resolution, queue_paused)
     threading.Thread(target=w.run, daemon=True).start()
 
     sc = FolderScanner(settings, add_job, jobs, jobs_lock)

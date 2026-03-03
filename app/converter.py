@@ -269,7 +269,7 @@ def run_chdman(input_file, output_file, chd_type, log_fn=None, progress_fn=None)
 
 class ConversionWorker:
     def __init__(self, job_queue, jobs, jobs_lock, settings, update_job_fn,
-                 log_fn, broadcast_fn, conflict_events, conflict_resolutions, apply_to_all_resolution):
+                 log_fn, broadcast_fn, conflict_events, conflict_resolutions, apply_to_all_resolution, queue_paused=None):
         self.job_queue   = job_queue
         self.jobs        = jobs
         self.jobs_lock   = jobs_lock
@@ -280,10 +280,15 @@ class ConversionWorker:
         self.conflict_events      = conflict_events
         self.conflict_resolutions = conflict_resolutions
         self.apply_to_all         = apply_to_all_resolution
+        self.queue_paused         = queue_paused or [False]
         self._stop = False
 
     def run(self):
         while not self._stop:
+            # Respect pause — sit idle without consuming jobs
+            if self.queue_paused[0]:
+                import time as _time; _time.sleep(0.5)
+                continue
             job_id = None
             try:
                 try:
