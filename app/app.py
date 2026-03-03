@@ -38,6 +38,13 @@ apply_to_all_resolution = [None]
 settings             = {}
 scanner_instance     = [None]
 
+APP_VERSION = "1.0.1"
+
+@app.route("/version")
+def get_version():
+    return jsonify({"version": APP_VERSION})
+
+
 
 def load_settings():
     global settings
