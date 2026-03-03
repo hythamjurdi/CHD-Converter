@@ -18,6 +18,9 @@ Built with the assistance of [Claude AI](https://claude.ai) by Anthropic.
 - Conflict resolution — ask / skip / overwrite with apply-to-all option
 - Conversion history that survives container restarts
 - Dark / light mode
+- RetroAchievements hashing support (requires RA API key)
+- Optional retroactive scan to hash previously converted games
+- Toggleable RA integration in settings
 
 ---
 
@@ -96,3 +99,12 @@ The app merges this with the built-in database on startup, with your entries tak
 - Uses `chdman createcd` for all optical disc formats — this is correct for PS2, PS1, PSP, Dreamcast, Saturn, etc.
 - `createhd` (hard disk images) can be forced via the CHD Type Override setting if needed
 - Settings and conversion history are stored in `/config` and persist across container restarts
+
+## Changelog
+
+### v1.1.0
+- Added RetroAchievements hashing support
+- Added retroactive scan for previously converted games
+- Improved bin/cue error handling
+- Improved queue handling for 2,000+ jobs
+- General fixes
