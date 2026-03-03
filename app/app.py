@@ -39,7 +39,7 @@ queue_paused = [False]
 settings             = {}
 scanner_instance     = [None]
 
-APP_VERSION = "1.0.4"
+APP_VERSION = "1.0.5"
 
 @app.route("/version")
 def get_version():

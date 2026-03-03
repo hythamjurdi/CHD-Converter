@@ -53,6 +53,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .queue-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:200px;color:var(--text-muted);gap:8px;font-size:13px;text-align:center;padding:20px}
 .job-item{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:11px 12px;margin-bottom:6px;cursor:pointer;transition:border-color .15s;position:relative;overflow:hidden}
 .job-item:hover{border-color:var(--accent)}.job-item.selected{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--surface2))}
+.job-item.selected::after{content:"✕";position:absolute;top:6px;right:8px;font-size:10px;color:var(--text-muted);opacity:.5}
 .job-item::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px}
 .job-item.queued::before{background:var(--text-muted)}.job-item.running::before{background:var(--running)}.job-item.extracting::before{background:var(--extracting)}.job-item.rezipping::before{background:var(--rezipping)}.job-item.completed::before{background:var(--success)}.job-item.failed::before{background:var(--error)}.job-item.cancelled::before,.job-item.skipped::before{background:var(--text-muted)}
 .job-name{font-size:12px;font-weight:600;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -172,7 +173,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>
       CHD Converter
     </div>
-    <span style="font-size:11px;font-weight:700;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:3px 10px;color:var(--text-muted);letter-spacing:.5px">v1.0.4</span>
+    <span style="font-size:11px;font-weight:700;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:3px 10px;color:var(--text-muted);letter-spacing:.5px">v1.0.5</span>
     <div class="header-spacer"></div>
     <div class="stats-bar">
       <div class="stat-pill"><span class="stat-dot dot-running"></span><span id="statActive">0</span> active</div>
@@ -726,7 +727,14 @@ async function loadMoreJobs() {
 // ── Job selection ────────────────────────────────────────────────
 document.getElementById('queueList').addEventListener('click', async e => {
   const item = e.target.closest('.job-item');
-  if (!item) return;
+
+  // Click on empty space OR click the already-selected job → deselect and return to overview
+  if (!item || item.dataset.id === selectedJobId) {
+    document.querySelectorAll('.job-item').forEach(el => el.classList.remove('selected'));
+    showDetailEmpty();
+    return;
+  }
+
   const jobId = item.dataset.id;
   selectedJobId = jobId;
   document.querySelectorAll('.job-item').forEach(el => el.classList.toggle('selected', el.dataset.id === jobId));
