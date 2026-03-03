@@ -392,29 +392,40 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
           </div>
 
           <div class="settings-section">
-            <h3>🏆 RetroAchievements</h3><p class="section-desc">Verify CHDs are recognized by RetroAchievements</p>
+            <!-- RA header with live status indicator -->
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+              <h3 style="margin:0">RetroAchievements</h3>
+              <!-- Status icon: prohibition=no creds, spinner=checking, checkmark=ok, cross=bad -->
+              <span id="raStatusIcon" title="RA connection status" style="font-size:18px;line-height:1;flex-shrink:0">🚫</span>
+              <span id="raStatusText" style="font-size:11px;color:var(--text-muted)">No credentials saved</span>
+              <!-- Manual re-check button (magnifying glass) -->
+              <button id="raRecheckBtn" title="Re-check connection" onclick="raVerify()"
+                style="background:none;border:none;cursor:pointer;color:var(--text-muted);padding:2px 4px;font-size:15px;line-height:1;display:none">
+                🔍
+              </button>
+            </div>
+            <p class="section-desc" style="margin-top:0">Verify CHDs are recognized by RetroAchievements</p>
             <div class="toggle-group"><div class="toggle-info"><div class="toggle-label">Compute RA hash after each conversion</div><div class="toggle-desc">Non-blocking — runs after CHD is created, logs result</div></div><label class="toggle"><input type="checkbox" id="settRAHash"><span class="toggle-slider"></span></label></div>
 
-            <div style="margin-top:18px;display:flex;align-items:flex-end;gap:12px">
-              <div style="flex:1;display:flex;flex-direction:column;gap:10px">
-                <div class="form-group" style="margin:0"><label>RA Username</label><input type="text" id="settRAUser" placeholder="Your RetroAchievements username" autocomplete="off"></div>
-                <div class="form-group" style="margin:0"><label>API Key</label><input type="text" id="settRAKey" placeholder="Your API key" style="font-family:monospace;letter-spacing:.5px" autocomplete="off"></div>
-                <div style="font-size:11px;color:var(--text-muted)">Get your API key at <a href="https://retroachievements.org/settings" target="_blank" style="color:var(--accent2)">retroachievements.org/settings</a></div>
+            <!-- Credentials block — locked/unlocked states -->
+            <div id="raCredsLocked" style="display:none;margin-top:12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+              <div>
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:2px">Saved credentials</div>
+                <div style="font-size:13px;font-weight:600" id="raLockedUser">—</div>
+                <div style="font-size:11px;color:var(--text-muted);font-family:monospace" id="raLockedKey">—</div>
               </div>
-              <button id="raStatusBtn" title="Check RA connection" onclick="checkRAStatus()" style="flex-shrink:0;width:44px;height:44px;border-radius:50%;border:2px solid var(--border);background:var(--surface2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:22px;transition:all .2s;margin-bottom:22px">❓</button>
+              <button class="btn btn-outline btn-sm" onclick="raUnlock()">Change</button>
             </div>
 
-            <div id="raStatusPopover" style="display:none;margin-top:10px;border-radius:10px;padding:14px 16px;border:1px solid var(--border);background:var(--surface2)">
-              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
-                <div style="min-width:0">
-                  <div id="raStatusTitle" style="font-size:13px;font-weight:700;margin-bottom:3px"></div>
-                  <div id="raStatusMsg" style="font-size:12px;color:var(--text-muted);line-height:1.5"></div>
-                </div>
-                <button class="btn btn-outline btn-sm" onclick="checkRAStatus()">↻ Recheck</button>
+            <div id="raCredsEdit" style="margin-top:12px">
+              <div class="form-group"><label>RA Username</label>
+                <input type="text" id="settRAUser" placeholder="your_ra_username" autocomplete="off">
               </div>
+              <div class="form-group"><label>RA API Key — <a href="https://retroachievements.org/settings" target="_blank" style="color:var(--accent);font-size:11px">get it here</a></label>
+                <input type="text" id="settRAKey" placeholder="your_api_key" style="font-family:monospace" autocomplete="off">
+              </div>
+              <button class="btn btn-primary btn-sm" id="raCredsBtn" onclick="raSaveCreds()" style="margin-top:4px">Save &amp; Verify</button>
             </div>
-
-            <div class="info-box" style="margin-top:12px"><strong>ℹ️ Without API credentials</strong>Hashes are still checked — you will see recognized or not found. Game name lookup requires an API key.</div>
           </div>
           <div class="settings-footer">
             <button class="btn btn-outline" id="resetSettBtn">Reset</button>
@@ -514,7 +525,6 @@ function connectSSE() {
     updateStats();
     renderQueue();
     updateNowPlaying();
-    setTimeout(autoCheckRA, 800);
   });
 
   eventSource.addEventListener('job_added', e => {
@@ -1105,8 +1115,8 @@ function collectSettings() {
     lookup_game_name:        document.getElementById('settLookup').checked,
     bad_dump_detection:      document.getElementById('settBadDump').value,
     ra_hash_on_convert:      document.getElementById('settRAHash').checked,
-    ra_username:             document.getElementById('settRAUser').value,
-    ra_api_key:              document.getElementById('settRAKey').value,
+    ra_username:             document.getElementById('settRAUser').value || (settings.ra_username||''),
+    ra_api_key:              document.getElementById('settRAKey').value  || (settings.ra_api_key||''),
   };
 }
 
@@ -1242,6 +1252,120 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.style.userSelect = '';
   });
 })();
+
+
+// ── RA Credentials UI ─────────────────────────────────────────────────────
+
+function raSetStatus(state, msg) {
+  // state: 'none' | 'checking' | 'ok' | 'fail'
+  const icon = document.getElementById('raStatusIcon');
+  const text = document.getElementById('raStatusText');
+  const recheck = document.getElementById('raRecheckBtn');
+  const map = {
+    none:     { i: '🚫', c: 'var(--text-muted)' },
+    checking: { i: '⏳', c: 'var(--text-muted)' },
+    ok:       { i: '✅', c: 'var(--success)' },
+    fail:     { i: '🚫', c: 'var(--error)' },
+  };
+  const s = map[state] || map.none;
+  icon.textContent  = s.i;
+  text.textContent  = msg || '';
+  text.style.color  = s.c;
+  recheck.style.display = (state === 'ok' || state === 'fail') ? 'inline' : 'none';
+}
+
+function raApplySettings(s) {
+  const user = (s.ra_username || '').trim();
+  const key  = (s.ra_api_key  || '').trim();
+  // Populate edit fields
+  document.getElementById('settRAUser').value = user;
+  document.getElementById('settRAKey').value  = key;
+  if (user && key) {
+    // Show locked view with masked key
+    raShowLocked(user, key);
+    // Restore last known status from sessionStorage
+    const cached = sessionStorage.getItem('ra_status');
+    if (cached) {
+      try { const d = JSON.parse(cached); raSetStatus(d.state, d.msg); } catch(e) {}
+    } else {
+      raSetStatus('none', 'Credentials saved — click 🔍 to verify');
+      document.getElementById('raRecheckBtn').style.display = 'inline';
+    }
+  } else {
+    raShowEdit();
+    raSetStatus('none', 'No credentials saved');
+  }
+}
+
+function raShowLocked(user, key) {
+  document.getElementById('raCredsLocked').style.display = 'flex';
+  document.getElementById('raCredsEdit').style.display   = 'none';
+  document.getElementById('raLockedUser').textContent    = user;
+  // Show first 4 chars of key then mask
+  document.getElementById('raLockedKey').textContent     = key.slice(0,4) + '••••••••••••••••••••••••';
+}
+
+function raShowEdit() {
+  document.getElementById('raCredsLocked').style.display = 'none';
+  document.getElementById('raCredsEdit').style.display   = 'block';
+}
+
+function raUnlock() {
+  raShowEdit();
+}
+
+async function raSaveCreds() {
+  const user = document.getElementById('settRAUser').value.trim();
+  const key  = document.getElementById('settRAKey').value.trim();
+  if (!user || !key) {
+    raSetStatus('fail', 'Both username and API key are required');
+    return;
+  }
+  // Save to settings first
+  settings.ra_username = user;
+  settings.ra_api_key  = key;
+  const btn = document.getElementById('raCredsBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  await fetch('/api/settings', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(collectSettings())
+  });
+  btn.disabled = false; btn.textContent = 'Save & Verify';
+  raShowLocked(user, key);
+  await raVerify();
+}
+
+async function raVerify() {
+  const user = settings.ra_username || document.getElementById('settRAUser').value.trim();
+  const key  = settings.ra_api_key  || document.getElementById('settRAKey').value.trim();
+  if (!user || !key) {
+    raSetStatus('none', 'No credentials saved');
+    return;
+  }
+  raSetStatus('checking', 'Checking connection…');
+  try {
+    const r = await fetch('/api/ra/verify', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({username: user, api_key: key})
+    });
+    const d = await r.json();
+    if (d.ok) {
+      const msg = `Connected as ${d.user}${d.points ? ' · '+d.points+' pts' : ''}`;
+      raSetStatus('ok', msg);
+      sessionStorage.setItem('ra_status', JSON.stringify({state:'ok', msg}));
+    } else {
+      const msg = d.error || 'Connection failed';
+      raSetStatus('fail', msg);
+      sessionStorage.setItem('ra_status', JSON.stringify({state:'fail', msg}));
+    }
+  } catch(e) {
+    const msg = 'Network error — check container internet access';
+    raSetStatus('fail', msg);
+    sessionStorage.setItem('ra_status', JSON.stringify({state:'fail', msg}));
+  }
+}
 
 // ── RetroAchievements ─────────────────────────────────────────────
 let raResults  = {};  // path -> result object
@@ -1393,39 +1517,6 @@ document.getElementById('mainTabRA').addEventListener('click', () => {
 });
 
 registerRAListener();
-
-async function checkRAStatus() {
-  var btn=document.getElementById('raStatusBtn');
-  var pop=document.getElementById('raStatusPopover');
-  var title=document.getElementById('raStatusTitle');
-  var msg=document.getElementById('raStatusMsg');
-  if(!btn) return;
-  btn.textContent='⏳'; btn.style.opacity='0.6'; btn.style.borderColor='var(--border)';
-  pop.style.display='block'; title.textContent='Checking...'; msg.textContent='';
-  await saveSettings();
-  try {
-    var r=await fetch('/api/ra/verify',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({username:document.getElementById('settRAUser').value.trim(),
-        api_key:document.getElementById('settRAKey').value.trim()})});
-    var d=await r.json();
-    var STATUS={linked:{icon:'✅',color:'var(--success)',label:'✅ Linked to RetroAchievements'},
-      invalid:{icon:'❌',color:'var(--error)',label:'❌ Invalid credentials'},
-      no_credentials:{icon:'⚠',color:'var(--warning)',label:'⚠ API reachable but no credentials'},
-      error:{icon:'❌',color:'var(--error)',label:'❌ Connection failed'},
-      api_error:{icon:'❌',color:'var(--error)',label:'❌ API error'}};
-    var s=STATUS[d.status]||{icon:'❓',color:'var(--text-muted)',label:d.status};
-    btn.textContent=s.icon; btn.style.opacity='1'; btn.style.borderColor=s.color;
-    title.textContent=s.label; title.style.color=s.color; msg.textContent=d.message||'';
-  } catch(e) {
-    btn.textContent='❌'; btn.style.opacity='1';
-    title.textContent='Request failed'; msg.textContent=String(e);
-  }
-}
-function autoCheckRA() {
-  var u=document.getElementById('settRAUser'),k=document.getElementById('settRAKey');
-  if(u&&k&&u.value.trim()&&k.value.trim()) checkRAStatus();
-}
-
 </script>
 </body>
 </html>

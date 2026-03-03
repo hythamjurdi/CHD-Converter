@@ -354,6 +354,29 @@ def stop_queue():
 
 # ── RetroAchievements ──────────────────────────────────────────────
 
+@app.route("/api/ra/verify", methods=["POST"])
+def ra_verify():
+    """Test RA credentials via GetUserProfile."""
+    username = (request.json or {}).get("username", "").strip()
+    api_key  = (request.json or {}).get("api_key",  "").strip()
+    if not username or not api_key:
+        return jsonify({"ok": False, "error": "Username and API key are required"})
+    try:
+        from urllib.request import urlopen, Request as UReq
+        import json as _j
+        url = (f"https://retroachievements.org/API/API_GetUserProfile.php"
+               f"?z={username}&y={api_key}&u={username}")
+        req = UReq(url, headers={"User-Agent": "CHD-Converter/1.1.1"})
+        with urlopen(req, timeout=8) as r:
+            data = _j.loads(r.read())
+        if data.get("User"):
+            return jsonify({"ok": True, "user": data["User"], "points": data.get("TotalPoints", 0)})
+        else:
+            return jsonify({"ok": False, "error": "Invalid credentials or user not found"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 @app.route("/api/ra/scan", methods=["POST"])
 def ra_scan():
     """Start RA hash scan of a folder. Non-blocking — streams results via SSE."""
@@ -522,37 +545,3 @@ if __name__ == "__main__":
     threading.Thread(target=sc.run, daemon=True).start()
 
     app.run(host="0.0.0.0", port=9292, threaded=True, debug=False)
-
-
-
-@app.route("/api/ra/verify", methods=["POST"])
-def ra_verify():
-    username = (request.json or {}).get("username", "").strip()
-    api_key  = (request.json or {}).get("api_key",  "").strip()
-    from ra_hasher import lookup_ra_hash
-    from urllib.request import urlopen, Request as UReq
-    from urllib.error import URLError
-    import json as _j
-
-    # Step 1: check API reachable with known hash (no creds)
-    test = lookup_ra_hash("d289e3ab51a42b6e3b6b5f52e2d80d1c")
-    if test.get("error"):
-        return jsonify({"status":"error","message":f"Cannot reach RetroAchievements: {test['error']}","api_reachable":False,"credentials_valid":False})
-
-    if not username or not api_key:
-        return jsonify({"status":"no_credentials","message":"RetroAchievements API is reachable. Add your username and API key for game name lookup.","api_reachable":True,"credentials_valid":False})
-
-    # Step 2: validate credentials
-    try:
-        url = f"https://retroachievements.org/API/API_GetUserSummary.php?z={username}&y={api_key}&u={username}&g=0&a=0"
-        with urlopen(UReq(url, headers={"User-Agent":"CHD-Converter/1.1.1"}), timeout=8) as r:
-            data = _j.loads(r.read())
-        if data.get("ID") or data.get("User"):
-            display = data.get("User") or username
-            points  = data.get("TotalPoints", 0)
-            return jsonify({"status":"linked","message":f"Linked as {display} · {points:,} points","api_reachable":True,"credentials_valid":True,"user":display})
-        return jsonify({"status":"invalid","message":"Invalid username or API key. Check retroachievements.org/settings.","api_reachable":True,"credentials_valid":False})
-    except URLError as e:
-        return jsonify({"status":"error","message":f"Network error: {e.reason}","api_reachable":False,"credentials_valid":False})
-    except Exception as e:
-        return jsonify({"status":"error","message":str(e),"api_reachable":False,"credentials_valid":False})
