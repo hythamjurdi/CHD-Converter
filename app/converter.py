@@ -25,8 +25,15 @@ def find_cue_files(folder):
     return cues
 
 def find_iso_files(folder):
-    results = []
+    """
+    Returns convertible files.
+    Bare .bin files with no matching .cue are skipped — passing them to chdman
+    createcd causes it to hang reporting "Input tracks: 0". The caller receives
+    ("ORPHAN_BIN", path) for any such file so it can log a clear error.
+    """
+    results  = []
     cue_bins = set()
+
     for root, _, files in os.walk(folder):
         for f in files:
             if f.lower().endswith(".cue"):
@@ -37,19 +44,19 @@ def find_iso_files(folder):
                                 parts = line.strip().split('"')
                                 if len(parts) >= 2:
                                     cue_bins.add(os.path.join(root, parts[1]))
-                except: pass
+                except:
+                    pass
+
     for root, _, files in os.walk(folder):
         for f in files:
             full = os.path.join(root, f)
             ext  = os.path.splitext(f)[1].lower()
             if ext in (".iso", ".img", ".mdf", ".nrg"):
                 results.append(full)
-            elif ext == ".bin" and full not in cue_bins:
-                results.append(full)
+            elif ext == ".bin":
+                if full not in cue_bins:
+                    results.append(("ORPHAN_BIN", full))
     return results
-
-
-# ── Bad dump detection ───────────────────────────────────────────
 
 def check_bad_dump(iso_path, mode="size", log_fn=None):
     try:
@@ -114,7 +121,13 @@ def _run_with_progress(cmd, log_fn=None, progress_fn=None):
         line = buf.decode("utf-8", errors="replace").strip()
         if line and log_fn: log_fn(line)
 
-    proc.wait()
+    try:
+        proc.wait(timeout=1800)  # 30-minute hard limit — kills hung chdman
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+        if log_fn: log_fn("ERROR: Process timed out after 30 minutes and was killed.", "error")
+        return -1
     return proc.returncode
 
 
@@ -154,14 +167,14 @@ def _run_with_timer_progress(cmd, log_fn=None, progress_fn=None, tick_interval=1
             buf = b""
             if line:
                 # Skip bare percentage lines (e.g. "  0%") — handled by timer
-                if not re.match(r'^\s*\d+%\s*$', line):
+                if not re.match(r'^\s*\d+%', line):  # filter bare progress lines like '0%', '45% - file.bin'
                     if log_fn: log_fn(line)
         else:
             buf += ch
 
     if buf:
         line = buf.decode("utf-8", errors="replace").strip()
-        if line and not re.match(r'^\s*\d+%\s*$', line):
+        if line and not re.match(r'^\s*\d+%', line):
             if log_fn: log_fn(line)
 
     stop_timer.set()
@@ -335,6 +348,13 @@ class ConversionWorker:
                     success_count = 0
 
                     for i, src in enumerate(convertible):
+                        # ── ORPHAN BIN — skip and warn ────────────
+                        if isinstance(src, tuple) and src[0] == "ORPHAN_BIN":
+                            log(f"⚠️  Skipped {os.path.basename(src[1])}: no .cue file found. "
+                                "Multi-track .bin files require a .cue sheet to convert correctly. "
+                                "Re-archive this game with its .cue included.", "error")
+                            continue
+
                         # ── RUNNING ───────────────────────────────
                         self.update_job(job_id, status="running")
                         chd_type = self.settings.get("chd_type", "auto")
