@@ -368,8 +368,9 @@ class ConversionWorker:
 
                     if not convertible:
                         if orphan_bins:
-                            self.update_job(job_id, status="failed",
-                                            error="Only orphan .bin files found — no .cue sheets")
+                            log("Skipped: archive contains only .bin files with no .cue sheets. "
+                                "Re-archive with the .cue included to convert this game.", "warn")
+                            self.update_job(job_id, status="skipped", progress=100)
                         else:
                             log("No convertible files found in archive.", "error")
                             self.update_job(job_id, status="failed", error="No ISO/CUE files found")
