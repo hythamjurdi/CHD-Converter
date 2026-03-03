@@ -14,7 +14,8 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .logo{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:700;color:var(--accent)}
 .header-spacer{flex:1}
 .stats-bar{display:flex;gap:8px;align-items:center}
-.stat-pill{background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-size:12px;font-weight:600;display:flex;gap:6px;align-items:center}
+.stat-pill{background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-size:12px;font-weight:600;display:flex;gap:6px;align-items:center;transition:border-color .15s}
+.stat-pill:hover{border-color:var(--accent)}
 .stat-dot{width:8px;height:8px;border-radius:50%}
 .dot-queued{background:var(--text-muted)}.dot-running{background:var(--running);animation:blink 1.5s infinite}.dot-completed{background:var(--success)}.dot-failed{background:var(--error)}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
@@ -173,14 +174,14 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>
       CHD Converter
     </div>
-    <span style="font-size:11px;font-weight:700;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:3px 10px;color:var(--text-muted);letter-spacing:.5px">v1.0.6</span>
+    <span style="font-size:11px;font-weight:700;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:3px 10px;color:var(--text-muted);letter-spacing:.5px">v1.0.7</span>
     <div class="header-spacer"></div>
     <div class="stats-bar">
-      <div class="stat-pill"><span class="stat-dot dot-running"></span><span id="statActive">0</span> active</div>
-      <div class="stat-pill"><span class="stat-dot dot-queued"></span><span id="statQueued">0</span> queued</div>
-      <div class="stat-pill"><span class="stat-dot dot-completed"></span><span id="statCompleted">0</span> done</div>
-      <div class="stat-pill"><span class="stat-dot dot-failed"></span><span id="statFailed">0</span> failed</div>
-      <div class="stat-pill" id="totalPill" style="display:none">📦 <span id="statTotal">0</span> total</div>
+      <div class="stat-pill" style="cursor:pointer" onclick="switchSidebarFilter('active')"><span class="stat-dot dot-running"></span><span id="statActive">0</span> active</div>
+      <div class="stat-pill" style="cursor:pointer" onclick="switchSidebarFilter('queued')"><span class="stat-dot dot-queued"></span><span id="statQueued">0</span> queued</div>
+      <div class="stat-pill" style="cursor:pointer" onclick="switchSidebarFilter('completed')"><span class="stat-dot dot-completed"></span><span id="statCompleted">0</span> done</div>
+      <div class="stat-pill" style="cursor:pointer" onclick="switchSidebarFilter('failed')"><span class="stat-dot dot-failed"></span><span id="statFailed">0</span> failed</div>
+      <div class="stat-pill" id="totalPill" style="display:none;cursor:pointer" onclick="switchSidebarFilter('all')">📦 <span id="statTotal">0</span> total</div>
     </div>
     <button class="theme-toggle" id="themeBtn" title="Toggle theme">☀️</button>
   </header>
@@ -464,10 +465,22 @@ function connectSSE() {
     jobs[j.id] = j;
     updateStats();
 
-    // Ensure active jobs appear in sidebar (may not be in DOM yet if filter is wrong)
     let el = document.querySelector(`[data-id="${j.id}"]`);
-    if (!el && ACTIVE.includes(j.status)) {
-      // Add to list regardless of current filter so it's visible
+    const nowMatchesFilter = jobMatchesFilter(j, currentFilter);
+    const prevMatchedFilter = prev && jobMatchesFilter(prev, currentFilter);
+
+    if (el && !nowMatchesFilter) {
+      // Job moved to a different status bucket — remove from current filter view
+      if (selectedJobId === j.id) {
+        selectedJobId = null;
+        document.getElementById('detailEmpty').style.display = 'flex';
+        document.getElementById('detailContent').style.display = 'none';
+        updateNowPlaying();
+      }
+      el.remove();
+      el = null;
+    } else if (!el && nowMatchesFilter) {
+      // Job newly matches current filter — insert it
       const list = document.getElementById('queueList');
       document.getElementById('queueEmpty').style.display = 'none';
       el = makeJobElement(j);
@@ -475,6 +488,7 @@ function connectSSE() {
     } else if (el) {
       updateJobElement(el, j);
     }
+    checkEmpty();
 
     // Auto-select the newly active job only if user hasn't explicitly chosen the overview
     if (ACTIVE.includes(j.status) && !selectedJobId && !userWantsOverview) {
@@ -815,13 +829,17 @@ function appendLogEntry(entry, scroll=true) {
 }
 
 // ── Filter tabs ───────────────────────────────────────────────────
+function switchSidebarFilter(filter) {
+  currentFilter = filter;
+  currentPage = 1;
+  document.querySelectorAll('.queue-tab').forEach(t => t.classList.toggle('active', t.dataset.filter === filter));
+  renderQueue();
+  // Also make sure we're on the queue main tab
+  switchMainTab('queue');
+}
+
 document.querySelectorAll('.queue-tab').forEach(tab => {
-  tab.addEventListener('click', () => {
-    currentFilter = tab.dataset.filter;
-    currentPage = 1;
-    document.querySelectorAll('.queue-tab').forEach(t => t.classList.toggle('active', t === tab));
-    renderQueue();
-  });
+  tab.addEventListener('click', () => switchSidebarFilter(tab.dataset.filter));
 });
 
 // ── Scan Modal ────────────────────────────────────────────────────
