@@ -71,6 +71,31 @@ def find_iso_files(folder):
     return convertible, orphan_bins
 
 
+def peek_archive_iso_names(archive_path):
+    """
+    List ISO/CUE basenames inside an archive WITHOUT extracting (~0.1-0.3s).
+    Uses 7z's index read — no data is decompressed regardless of archive size.
+    Returns list of basenames (no extension). Returns [] on any failure.
+    """
+    try:
+        result = subprocess.run(
+            ["7z", "l", "-slt", "-ba", archive_path],
+            capture_output=True, text=True, timeout=15
+        )
+        names = []
+        ISO_EXTS = {".iso", ".img", ".cue", ".mdf", ".nrg"}
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if line.lower().startswith("path ="):
+                fname = line.split("=", 1)[1].strip()
+                base, ext = os.path.splitext(os.path.basename(fname))
+                if ext.lower() in ISO_EXTS:
+                    names.append(base)
+        return list(dict.fromkeys(names))  # dedupe, preserve order
+    except Exception:
+        return []
+
+
 def check_bad_dump(iso_path, mode="size", log_fn=None):
     try:
         size = os.path.getsize(iso_path)
@@ -331,11 +356,21 @@ class ConversionWorker:
         with self.jobs_lock:
             job = dict(self.jobs[job_id])
 
+        import time as _time
+        job_start = _time.monotonic()
+
         self.update_job(job_id, status="running", progress=5)
         file_path   = job["file_path"]
         ext         = os.path.splitext(file_path)[1].lower()
         dest_folder = self.settings.get("destination_folder", "/destination")
         os.makedirs(dest_folder, exist_ok=True)
+
+        # Record input size for compression ratio report
+        try:
+            input_bytes = os.path.getsize(file_path)
+        except Exception:
+            input_bytes = 0
+        self.update_job(job_id, input_bytes=input_bytes)
 
         do_lookup  = self.settings.get("lookup_game_name", False)
         dump_mode  = self.settings.get("bad_dump_detection", "off")
@@ -344,6 +379,19 @@ class ConversionWorker:
 
         def log(msg, level="info"):
             self.log(job_id, msg, level)
+
+        def finish(status, **kw):
+            elapsed = round(_time.monotonic() - job_start, 1)
+            # Try to capture output file size
+            with self.jobs_lock:
+                j = self.jobs.get(job_id, {})
+                out = j.get("rezip_path") or j.get("output_path")
+            try:
+                out_bytes = os.path.getsize(out) if out and os.path.exists(out) else 0
+            except Exception:
+                out_bytes = 0
+            self.update_job(job_id, status=status, elapsed_sec=elapsed,
+                            output_bytes=out_bytes, **kw)
 
         try:
             is_archive = any(file_path.lower().endswith(a) for a in ARCHIVE_EXTENSIONS) \
@@ -355,22 +403,38 @@ class ConversionWorker:
                     self.update_job(job_id, status="skipped")
                     return
 
-                # ── Pre-extraction conflict check ──────────────────
-                # If we can determine the output name without extracting
-                # (rename_to_archive mode), check for conflict now so we
-                # don't waste time extracting a multi-GB archive needlessly.
-                if self.settings.get("rename_to_archive", False) and not do_lookup:
-                    pre_base = os.path.splitext(os.path.basename(file_path))[0]
-                    pre_chd  = os.path.join(dest_folder, pre_base + ".chd")
-                    pre_7z   = os.path.join(dest_folder, pre_base + ".7z")
-                    target   = pre_7z if do_rezip else pre_chd
-                    if os.path.exists(target):
-                        result = self._handle_conflict(job_id, target, log)
-                        if result == "skip":
-                            self.update_job(job_id, status="skipped", progress=100)
-                            log(f"Skipped (output already exists): {os.path.basename(target)}", "warn")
-                            return
+                  # Pre-extraction conflict check (enabled in settings for duplicate detection)
+                if self.settings.get("pre_check_before_extract", False):
+                  # Pre-extraction conflict check: peek inside archive (~0.2s, no decompression)
+                    # to get ISO names, then check if CHD already exists BEFORE extracting.
+                    archive_base  = os.path.splitext(os.path.basename(file_path))[0]
+                    overwrite_set = self.settings.get("overwrite_existing", "ask")
 
+                    if self.settings.get("rename_to_archive", False):
+                        candidate_bases = [archive_base]
+                    else:
+                        peeked = peek_archive_iso_names(file_path)
+                        candidate_bases = peeked if peeked else [archive_base]
+
+                    if not do_lookup:
+                        for cbase in candidate_bases:
+                            pre_chd = os.path.join(dest_folder, cbase + ".chd")
+                            pre_7z  = os.path.join(dest_folder, cbase + ".7z")
+                            target  = pre_7z if (do_rezip and os.path.exists(pre_7z)) else pre_chd
+                            if os.path.exists(target):
+                                conflict_result = self._handle_conflict(job_id, target, log)
+                                if conflict_result == "skip":
+                                    self.update_job(job_id, status="skipped", progress=100)
+                                    log(f"Skipped (already exists, no extraction needed): {os.path.basename(target)}", "warn")
+                                    return
+                                break
+                    else:
+                        if overwrite_set == "skip":
+                            quick_chd = os.path.join(dest_folder, archive_base + ".chd")
+                            if os.path.exists(quick_chd):
+                                self.update_job(job_id, status="skipped", progress=100)
+                                log(f"Skipped (already exists, no extraction needed): {archive_base}.chd", "warn")
+                                return
                 tmp_dir = tempfile.mkdtemp(prefix="chd_extract_")
                 try:
                     # ── EXTRACTING ────────────────────────────────
@@ -479,7 +543,7 @@ class ConversionWorker:
                             chd2    = os.path.join(dest_folder, base2 + ".chd")
                             if os.path.exists(chd2):
                                 self._try_ra_hash(job_id, chd2, log)
-                    self.update_job(job_id, status="completed", progress=100)
+                    finish("completed", progress=100)
                     log(f"Completed {success_count}/{total} conversions", "success")
 
                 finally:
@@ -553,12 +617,12 @@ class ConversionWorker:
                     log(f"Archived: {os.path.basename(out_7z)}", "success")
 
                 self._try_ra_hash(job_id, out_chd, log)
-                self.update_job(job_id, status="completed", progress=100)
+                finish("completed", progress=100)
                 log(f"Done: {base}.chd", "success")
 
         except Exception as e:
             logger.exception(f"Job {job_id} failed")
-            self.update_job(job_id, status="failed", error=str(e), progress=0)
+            finish("failed", error=str(e), progress=0)
             log(f"Error: {e}", "error")
 
     def _try_ra_hash(self, job_id, chd_path, log):

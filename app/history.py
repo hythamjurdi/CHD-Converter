@@ -43,6 +43,11 @@ class HistoryManager:
             "chd_type_used":   job.get("chd_type_used"),
             "bad_dump":        job.get("bad_dump", False),
             "bad_dump_reason": job.get("bad_dump_reason"),
+            "error":           job.get("error"),
+            "elapsed_sec":     job.get("elapsed_sec"),
+            "input_bytes":     job.get("input_bytes"),
+            "output_bytes":    job.get("output_bytes"),
+            "log":             job.get("log", [])[-500:],  # cap at 500 log lines
             "timestamp":       datetime.now().isoformat(),
         }
         self._data["entries"].insert(0, entry)

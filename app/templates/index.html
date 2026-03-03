@@ -174,7 +174,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>
       CHD Converter
     </div>
-    <span style="font-size:11px;font-weight:700;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:3px 10px;color:var(--text-muted);letter-spacing:.5px">v1.1.1</span>
+    <span style="font-size:11px;font-weight:700;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:3px 10px;color:var(--text-muted);letter-spacing:.5px">v1.1.3</span>
     <div class="header-spacer"></div>
     <div class="stats-bar">
       <div class="stat-pill" style="cursor:pointer" onclick="switchSidebarFilter('active')"><span class="stat-dot dot-running"></span><span id="statActive">0</span> active</div>
@@ -182,6 +182,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
       <div class="stat-pill" style="cursor:pointer" onclick="switchSidebarFilter('completed')"><span class="stat-dot dot-completed"></span><span id="statCompleted">0</span> done</div>
       <div class="stat-pill" style="cursor:pointer" onclick="switchSidebarFilter('failed')"><span class="stat-dot dot-failed"></span><span id="statFailed">0</span> failed</div>
       <div class="stat-pill" id="totalPill" style="display:none;cursor:pointer" onclick="switchSidebarFilter('all')">📦 <span id="statTotal">0</span> total</div>
+      <div class="stat-pill" id="etaPill" style="display:none">⏱ ETA: <span id="statETA">—</span></div>
     </div>
     <button class="theme-toggle" id="themeBtn" title="Toggle theme">☀️</button>
   </header>
@@ -311,10 +312,15 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
               <p style="font-size:12px;color:var(--text-muted)">Verify your PS2 CHDs are recognized by RetroAchievements</p>
             </div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-              <input type="text" id="raFolder" placeholder="/destination" style="width:260px;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
+              <select id="raFolderType" onchange="raFolderTypeChanged()" style="padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
+                <option value="destination">Destination folder</option>
+                <option value="source">Source folder</option>
+                <option value="custom">Custom path…</option>
+              </select>
+              <input type="text" id="raFolder" placeholder="/destination" style="width:220px;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;display:none" id="raFolderCustom">
               <button class="btn btn-primary" id="raScanBtn">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                Scan Folder
+                Scan
               </button>
             </div>
           </div>
@@ -337,11 +343,17 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
             <div class="ra-filter-tab"        data-rf="error"   style="padding:9px 12px;font-size:12px;font-weight:600;cursor:pointer;color:var(--text-muted);border-bottom:2px solid transparent;white-space:nowrap;transition:all .2s">⚠️ Errors</div>
           </div>
 
+          <!-- Live status banner -->
+          <div id="raLiveStatus" style="display:none;padding:10px 24px;background:color-mix(in srgb,var(--accent2) 8%,var(--surface2));border-bottom:1px solid var(--border);font-size:12px;color:var(--accent2);display:flex;align-items:center;gap:10px">
+            <span style="animation:spin 1s linear infinite;display:inline-block">⏳</span>
+            <span id="raLiveText">Scanning…</span>
+          </div>
+
           <!-- Results list -->
           <div style="flex:1;overflow-y:auto" id="raResultsList">
             <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:300px;color:var(--text-muted);gap:10px;font-size:13px;text-align:center" id="raEmptyMsg">
               <span style="font-size:40px">🏆</span>
-              Enter a folder path and click Scan to check your CHDs
+              Select a folder and click Scan to check your CHDs
             </div>
           </div>
         </div>
@@ -363,6 +375,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
             <h3>📦 Archive Handling</h3><p class="section-desc">Settings for .7z, .zip, .rar archives</p>
             <div class="toggle-group"><div class="toggle-info"><div class="toggle-label">Extract from archives</div><div class="toggle-desc">Automatically extract before converting</div></div><label class="toggle"><input type="checkbox" id="settExtract"><span class="toggle-slider"></span></label></div>
             <div class="toggle-group"><div class="toggle-info"><div class="toggle-label">Delete archive after conversion</div></div><label class="toggle"><input type="checkbox" id="settDeleteArchive"><span class="toggle-slider"></span></label></div>
+            <div class="toggle-group"><div class="toggle-info"><div class="toggle-label">Check for existing CHD before extracting</div><div class="toggle-desc">Peeks inside archive (~0.2s, no decompression) to detect duplicates before extraction. Useful if you have an existing CHD library.</div></div><label class="toggle"><input type="checkbox" id="settPreCheck"><span class="toggle-slider"></span></label></div>
             <div class="toggle-group"><div class="toggle-info"><div class="toggle-label">Rename output to archive name</div></div><label class="toggle"><input type="checkbox" id="settRenameArchive"><span class="toggle-slider"></span></label></div>
           </div>
           <div class="settings-section">
@@ -588,6 +601,25 @@ function connectSSE() {
 
     if (selectedJobId === j.id) updateDetailHeader(j);
     updateNowPlaying();
+
+    // ETA + Batch tracking
+    const terminal = ['completed','failed','skipped'];
+    if (terminal.includes(j.status) && prev && !terminal.includes(prev.status)) {
+      batchTrackJob(j);
+      // Check if queue is now idle
+      const activeNow = Object.values(jobs).filter(x => !terminal.includes(x.status) && x.status !== 'queued').length;
+      const queuedNow = Object.values(jobs).filter(x => x.status === 'queued').length;
+      if (activeNow === 0 && queuedNow === 0 && batchDone + batchFailed + batchSkipped > 0) {
+        stopETA();
+        showBatchReport();
+        batchReset();
+      }
+    }
+    if (['running','extracting'].includes(j.status) && batchStartTime === null) {
+      batchReset();
+      batchStartTime = Date.now();
+      startETA();
+    }
   });
 
   eventSource.addEventListener('job_log', e => {
@@ -1042,16 +1074,32 @@ async function loadHistory() {
   list.innerHTML = entries.map(e => {
     const ts = e.timestamp ? new Date(e.timestamp).toLocaleString() : '';
     const out = e.rezip_path || e.output_path || '';
-    return `<div class="history-item">
-      <div>
+    const elapsed = e.elapsed_sec ? formatDuration(e.elapsed_sec) : '';
+    const ratio = (e.input_bytes && e.output_bytes) ? (100 - Math.round(e.output_bytes/e.input_bytes*100)) + '% smaller' : '';
+    const hasLog = e.log && e.log.length > 0;
+    return `<div class="history-item" style="cursor:${hasLog?'pointer':'default'}" onclick="${hasLog ? `showHistoryLog('${e.id}')` : ''}">
+      <div style="flex:1;min-width:0">
         <div class="history-name">${esc(e.filename||'')}</div>
-        ${e.game_name?`<div class="history-game">🎮 ${esc(e.game_name)}${e.disc_id?` · ${esc(e.disc_id)}`:''}</div>`:''}
-        <div class="history-meta"><span>🕒 ${ts}</span>${e.chd_type_used?`<span>${e.chd_type_used.toUpperCase()}</span>`:''} ${out?`<span>📁 ${esc(out.split('/').pop())}</span>`:''}</div>
-        ${e.bad_dump?`<div style="font-size:11px;color:var(--error);margin-top:3px">⚠️ ${esc(e.bad_dump_reason||'bad dump')}</div>`:''}
+        ${e.game_name ? `<div class="history-game">🎮 ${esc(e.game_name)}${e.disc_id ? ` · ${esc(e.disc_id)}` : ''}</div>` : ''}
+        <div class="history-meta">
+          <span>🕒 ${ts}</span>
+          ${e.chd_type_used ? `<span>${e.chd_type_used.toUpperCase()}</span>` : ''}
+          ${elapsed ? `<span>⏱ ${elapsed}</span>` : ''}
+          ${ratio ? `<span>📦 ${ratio}</span>` : ''}
+          ${out ? `<span>📁 ${esc(out.split('/').pop())}</span>` : ''}
+        </div>
+        ${e.bad_dump ? `<div style="font-size:11px;color:var(--error);margin-top:3px">⚠️ ${esc(e.bad_dump_reason||'bad dump')}</div>` : ''}
+        ${e.error ? `<div style="font-size:11px;color:var(--error);margin-top:3px">✖ ${esc(e.error)}</div>` : ''}
       </div>
-      <span class="history-status status-${e.status}">${(e.status||'').toUpperCase()}</span>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
+        <span class="history-status status-${e.status}">${(e.status||'').toUpperCase()}</span>
+        ${e.status === 'completed' && out && out.endsWith('.chd') ? `<button class="btn btn-outline btn-sm" onclick="event.stopPropagation();verifyCHD('${e.id}', this)" style="font-size:10px;padding:3px 8px">Verify CHD</button>` : ''}
+        ${hasLog ? `<span style="font-size:10px;color:var(--accent);opacity:.7">click for logs</span>` : ''}
+      </div>
     </div>`;
   }).join('');
+  // Store entries for log lookup
+  window._historyEntries = entries;
 }
 
 // ── Actions ───────────────────────────────────────────────────────
@@ -1084,6 +1132,7 @@ function applySettingsToForm() {
   document.getElementById('settWorkers').value         = s.max_workers||1;
   document.getElementById('settExtract').checked       = !!s.extract_archives;
   document.getElementById('settDeleteArchive').checked = !!s.delete_archive_after;
+  document.getElementById('settPreCheck').checked      = !!s.pre_check_before_extract;
   document.getElementById('settRenameArchive').checked = !!s.rename_to_archive;
   document.getElementById('settDeleteIso').checked     = !!s.delete_iso_after;
   document.getElementById('settAutoScan').checked      = !!s.auto_scan;
@@ -1105,6 +1154,7 @@ function collectSettings() {
     max_workers:             parseInt(document.getElementById('settWorkers').value)||1,
     extract_archives:        document.getElementById('settExtract').checked,
     delete_archive_after:    document.getElementById('settDeleteArchive').checked,
+    pre_check_before_extract: document.getElementById('settPreCheck').checked,
     rename_to_archive:       document.getElementById('settRenameArchive').checked,
     delete_iso_after:        document.getElementById('settDeleteIso').checked,
     auto_scan:               document.getElementById('settAutoScan').checked,
@@ -1367,6 +1417,150 @@ async function raVerify() {
   }
 }
 
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function formatDuration(sec) {
+  if (!sec) return '';
+  sec = Math.round(sec);
+  if (sec < 60) return sec + 's';
+  const m = Math.floor(sec / 60), s = sec % 60;
+  if (m < 60) return m + 'm ' + (s ? s + 's' : '');
+  const h = Math.floor(m / 60), rm = m % 60;
+  return h + 'h ' + (rm ? rm + 'm' : '');
+}
+
+// ── ETA ──────────────────────────────────────────────────────────────────────
+let etaInterval = null;
+
+function startETA() {
+  if (etaInterval) return;
+  etaInterval = setInterval(pollETA, 8000);
+  pollETA();
+}
+function stopETA() {
+  clearInterval(etaInterval);
+  etaInterval = null;
+  document.getElementById('etaPill').style.display = 'none';
+}
+async function pollETA() {
+  try {
+    const d = await fetch('/api/eta').then(r => r.json());
+    const pill = document.getElementById('etaPill');
+    if (d.eta_sec && d.queued_count > 0) {
+      document.getElementById('statETA').textContent = formatDuration(d.eta_sec);
+      pill.style.display = 'inline-flex';
+      pill.title = `~${formatDuration(d.avg_sec)} per game · ${d.queued_count} jobs remaining`;
+    } else {
+      pill.style.display = 'none';
+    }
+  } catch(e) {}
+}
+
+// ── Batch Report ─────────────────────────────────────────────────────────────
+let batchStartTime = null;
+let batchJobCount  = 0;
+let batchDone = 0, batchFailed = 0, batchSkipped = 0;
+let batchTotalInput = 0, batchTotalOutput = 0;
+
+function batchReset() {
+  batchStartTime = Date.now();
+  batchDone = batchFailed = batchSkipped = 0;
+  batchTotalInput = batchTotalOutput = 0;
+  batchJobCount = 0;
+}
+function batchTrackJob(j) {
+  if (j.status === 'completed') { batchDone++; batchTotalInput += j.input_bytes||0; batchTotalOutput += j.output_bytes||0; }
+  else if (j.status === 'failed')  batchFailed++;
+  else if (j.status === 'skipped') batchSkipped++;
+}
+function showBatchReport() {
+  const elapsed = batchStartTime ? Math.round((Date.now() - batchStartTime) / 1000) : 0;
+  const total = batchDone + batchFailed + batchSkipped;
+  if (total === 0) return;
+  const ratio = batchTotalInput > 0 ? Math.round((1 - batchTotalOutput/batchTotalInput)*100) : null;
+  const avgSec = batchDone > 0 ? Math.round(elapsed / batchDone) : null;
+  const stats = [
+    { label: 'Total jobs', value: total },
+    { label: '✅ Completed', value: batchDone },
+    { label: '❌ Failed', value: batchFailed },
+    { label: '⏭ Skipped', value: batchSkipped },
+    { label: '⏱ Total time', value: formatDuration(elapsed) },
+    { label: '⚡ Avg per game', value: avgSec ? formatDuration(avgSec) : '—' },
+    { label: '📦 Source size', value: batchTotalInput ? fmtBytes(batchTotalInput) : '—' },
+    { label: '💿 CHD size', value: batchTotalOutput ? fmtBytes(batchTotalOutput) : '—' },
+    { label: '🗜 Compression', value: ratio !== null ? ratio + '% smaller' : '—' },
+  ];
+  document.getElementById('batchReportContent').innerHTML = stats.map(s =>
+    `<div style="background:var(--surface2);border-radius:8px;padding:12px 14px">
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">${s.label}</div>
+      <div style="font-size:18px;font-weight:700">${s.value}</div>
+    </div>`
+  ).join('');
+  document.getElementById('batchReportModal').style.display = 'flex';
+}
+function fmtBytes(b) {
+  if (b > 1e9) return (b/1e9).toFixed(1) + ' GB';
+  if (b > 1e6) return (b/1e6).toFixed(1) + ' MB';
+  return Math.round(b/1024) + ' KB';
+}
+
+// ── CHD Verify ────────────────────────────────────────────────────────────────
+async function verifyCHD(jobId, btn) {
+  const origText = btn.textContent;
+  btn.textContent = '⏳ Verifying…';
+  btn.disabled = true;
+  try {
+    const d = await fetch(`/api/jobs/${jobId}/verify`, {method:'POST'}).then(r=>r.json());
+    btn.textContent = d.ok ? '✅ Valid' : '❌ Failed';
+    btn.style.color = d.ok ? 'var(--success)' : 'var(--error)';
+    if (!d.ok && d.error) {
+      alert('Verify failed: ' + (d.output || d.error));
+    }
+  } catch(e) {
+    btn.textContent = origText;
+  }
+  btn.disabled = false;
+}
+
+// ── History Log Modal ─────────────────────────────────────────────────────────
+function showHistoryLog(jobId) {
+  const entries = window._historyEntries || [];
+  const e = entries.find(x => x.id === jobId);
+  if (!e || !e.log || !e.log.length) return;
+  const modal = document.getElementById('historyLogModal');
+  document.getElementById('historyLogTitle').textContent = e.game_name || e.filename || 'Job Log';
+  const ts = e.timestamp ? new Date(e.timestamp).toLocaleString() : '';
+  const elapsed = e.elapsed_sec ? ' · ' + formatDuration(e.elapsed_sec) : '';
+  document.getElementById('historyLogMeta').textContent = ts + elapsed + ' · ' + (e.status||'').toUpperCase();
+  const levelColor = {info:'var(--text)', warn:'var(--warning)', error:'var(--error)', success:'var(--success)'};
+  document.getElementById('historyLogBody').innerHTML = e.log.map(l =>
+    `<span style="color:var(--text-muted);user-select:none">${l.time}  </span><span style="color:${levelColor[l.level]||'var(--text)'}">${esc(l.msg)}</span>`
+  ).join('
+');
+  modal.style.display = 'flex';
+}
+
+// ── RA Folder Type Selector ────────────────────────────────────────────────────
+function raFolderTypeChanged() {
+  const type = document.getElementById('raFolderType').value;
+  const input = document.getElementById('raFolder');
+  if (type === 'destination') {
+    input.style.display = 'none';
+    input.value = settings.destination_folder || '/destination';
+  } else if (type === 'source') {
+    input.style.display = 'none';
+    input.value = settings.source_folder || '/source';
+  } else {
+    input.style.display = 'block';
+  }
+}
+function raGetFolder() {
+  const type = document.getElementById('raFolderType').value;
+  if (type === 'destination') return settings.destination_folder || '/destination';
+  if (type === 'source')      return settings.source_folder || '/source';
+  return document.getElementById('raFolder').value.trim() || settings.destination_folder || '/destination';
+}
+
 // ── RetroAchievements ─────────────────────────────────────────────
 let raResults  = {};  // path -> result object
 let raFilter   = 'all';
@@ -1398,6 +1592,17 @@ function registerRAListener() {
     raResults[d.path] = d;
     updateRARow(d);
     updateRASummary();
+    // Update live status banner
+    const liveEl = document.getElementById('raLiveText');
+    const fname = d.path ? d.path.split('/').pop() : '';
+    if (d.status === 'hashing') {
+      liveEl.textContent = 'Hashing: ' + fname;
+      document.getElementById('raLiveStatus').style.display = 'flex';
+    } else if (d.status === 'matched') {
+      liveEl.textContent = '✅ ' + (d.game_title || fname);
+    } else if (d.status === 'not_found') {
+      liveEl.textContent = '❌ Not found: ' + fname;
+    }
   });
 }
 
@@ -1477,7 +1682,7 @@ document.querySelectorAll('.ra-filter-tab').forEach(tab => {
 });
 
 document.getElementById('raScanBtn').addEventListener('click', async () => {
-  const folder = document.getElementById('raFolder').value.trim() || '/destination';
+  const folder = raGetFolder();
   const btn = document.getElementById('raScanBtn');
   btn.disabled = true; btn.textContent = 'Scanning…';
   raResults = {};
@@ -1510,13 +1715,38 @@ document.getElementById('raScanBtn').addEventListener('click', async () => {
 
 // Set default folder from settings when tab opens
 document.getElementById('mainTabRA').addEventListener('click', () => {
-  if (!document.getElementById('raFolder').value) {
-    document.getElementById('raFolder').value = settings.destination_folder || '/destination';
-  }
+  // Init folder type dropdown (defaults to destination)
+  raFolderTypeChanged();
   updateRASummary();
 });
 
 registerRAListener();
 </script>
+
+<!-- Batch Complete Report Modal -->
+<div id="batchReportModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;display:flex;align-items:center;justify-content:center" onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:28px 32px;max-width:480px;width:90%;box-shadow:0 24px 60px rgba(0,0,0,.5)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+      <h2 style="font-size:17px;font-weight:700">🎉 Batch Complete</h2>
+      <button onclick="document.getElementById('batchReportModal').style.display='none'" style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer">✕</button>
+    </div>
+    <div id="batchReportContent" style="display:grid;grid-template-columns:1fr 1fr;gap:12px"></div>
+    <button class="btn btn-primary" style="width:100%;margin-top:20px" onclick="document.getElementById('batchReportModal').style.display='none'">Close</button>
+  </div>
+</div>
+
+<!-- History Log Modal -->
+<div id="historyLogModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center" onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:0;max-width:700px;width:95%;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.5)">
+    <div style="padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div id="historyLogTitle" style="font-size:15px;font-weight:700">Job Log</div>
+        <div id="historyLogMeta" style="font-size:12px;color:var(--text-muted);margin-top:2px"></div>
+      </div>
+      <button onclick="document.getElementById('historyLogModal').style.display='none'" style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer">✕</button>
+    </div>
+    <div id="historyLogBody" style="flex:1;overflow-y:auto;padding:16px 24px;font-family:monospace;font-size:12px;line-height:1.8;white-space:pre-wrap;background:var(--surface2)"></div>
+  </div>
+</div>
 </body>
 </html>

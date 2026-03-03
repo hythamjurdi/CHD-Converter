@@ -1,4 +1,4 @@
-import os, json, uuid, threading, queue, logging
+import os, json, uuid, threading, queue, logging, subprocess
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 
@@ -25,6 +25,7 @@ DEFAULT_SETTINGS = {
     "rezip_compression_level":   5,
     "lookup_game_name":          False,
     "bad_dump_detection":        "off",   # off | size | checksum
+    "pre_check_before_extract":  False,
     "ra_hash_on_convert":        False,
     "ra_username":               "",
     "ra_api_key":                "",
@@ -45,7 +46,9 @@ ra_scan_jobs         = {}   # path -> {status, hash, exe, game_id, game_title, e
 ra_scan_lock         = threading.Lock()
 ra_scan_thread       = [None]
 
-APP_VERSION = "1.1.1"
+batch_stats          = {"elapsed_samples": [], "completed_this_batch": 0}
+
+APP_VERSION = "1.1.3"
 
 @app.route("/version")
 def get_version():
@@ -93,6 +96,14 @@ def update_job(job_id, **kwargs):
             data = dict(jobs[job_id])
             if kwargs.get("status") in ("completed", "failed", "skipped"):
                 completed = True
+                # Track elapsed times for ETA computation
+                if kwargs.get("status") == "completed":
+                    elapsed = jobs[job_id].get("elapsed_sec", 0)
+                    if elapsed and elapsed > 0:
+                        batch_stats["elapsed_samples"].append(elapsed)
+                        if len(batch_stats["elapsed_samples"]) > 50:
+                            batch_stats["elapsed_samples"].pop(0)
+                batch_stats["completed_this_batch"] += 1
     if data:
         broadcast_event("job_update", data)
     if completed:
@@ -326,6 +337,56 @@ def clear_history():
     history_manager.clear()
     broadcast_event("history_cleared", {})
     return jsonify({"success": True})
+
+
+@app.route("/api/eta", methods=["GET"])
+def get_eta():
+    """Return ETA info based on recent completed job timings."""
+    with jobs_lock:
+        queued_count = sum(1 for j in jobs.values()
+                          if j["status"] in ("queued", "running", "extracting", "rezipping"))
+    samples = batch_stats["elapsed_samples"]
+    if samples and queued_count > 0:
+        avg = sum(samples) / len(samples)
+        eta_sec = round(avg * queued_count)
+    else:
+        avg = None
+        eta_sec = None
+    return jsonify({
+        "queued_count":  queued_count,
+        "avg_sec":       round(avg, 1) if avg else None,
+        "eta_sec":       eta_sec,
+        "sample_count":  len(samples),
+    })
+
+
+@app.route("/api/jobs/<job_id>/verify", methods=["POST"])
+def verify_chd(job_id):
+    """Run chdman verify on a completed job's output CHD."""
+    with jobs_lock:
+        job = jobs.get(job_id) or {}
+    # Also check history if not in memory
+    if not job:
+        from history import history_manager
+        for e in history_manager.get_entries():
+            if e.get("id") == job_id:
+                job = e
+                break
+    chd = job.get("output_path") or job.get("rezip_path")
+    if not chd or not chd.endswith(".chd") or not os.path.exists(chd):
+        return jsonify({"ok": False, "error": "CHD file not found"})
+    try:
+        result = subprocess.run(
+            ["chdman", "verify", "-i", chd],
+            capture_output=True, text=True, timeout=120
+        )
+        output = (result.stdout + result.stderr).strip()
+        ok = result.returncode == 0
+        return jsonify({"ok": ok, "output": output})
+    except subprocess.TimeoutExpired:
+        return jsonify({"ok": False, "error": "Verify timed out after 2 minutes"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 
 @app.route("/api/queue/pause", methods=["POST"])
