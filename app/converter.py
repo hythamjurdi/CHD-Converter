@@ -24,16 +24,26 @@ def find_cue_files(folder):
                 cues.append(os.path.join(root, f))
     return cues
 
+
+def _bin_has_cue(bin_path):
+    """Return the .cue path if a matching .cue exists next to this .bin, else None."""
+    cue = os.path.splitext(bin_path)[0] + ".cue"
+    return cue if os.path.exists(cue) else None
+
+
 def find_iso_files(folder):
     """
-    Returns convertible files.
-    Bare .bin files with no matching .cue are skipped — passing them to chdman
-    createcd causes it to hang reporting "Input tracks: 0". The caller receives
-    ("ORPHAN_BIN", path) for any such file so it can log a clear error.
+    Returns (convertible, orphan_bins).
+    convertible = list of paths safe to pass to chdman.
+    orphan_bins = list of .bin paths that have no .cue — callers should log
+                  a warning for each rather than passing them to chdman
+                  (which would hang at "Input tracks: 0").
     """
-    results  = []
-    cue_bins = set()
+    convertible = []
+    orphan_bins = []
+    cue_bins    = set()
 
+    # First pass: record which .bin files are claimed by a .cue
     for root, _, files in os.walk(folder):
         for f in files:
             if f.lower().endswith(".cue"):
@@ -43,20 +53,23 @@ def find_iso_files(folder):
                             if "FILE" in line.upper():
                                 parts = line.strip().split('"')
                                 if len(parts) >= 2:
-                                    cue_bins.add(os.path.join(root, parts[1]))
+                                    cue_bins.add(os.path.normpath(
+                                        os.path.join(root, parts[1])))
                 except:
                     pass
 
     for root, _, files in os.walk(folder):
         for f in files:
-            full = os.path.join(root, f)
+            full = os.path.normpath(os.path.join(root, f))
             ext  = os.path.splitext(f)[1].lower()
             if ext in (".iso", ".img", ".mdf", ".nrg"):
-                results.append(full)
-            elif ext == ".bin":
-                if full not in cue_bins:
-                    results.append(("ORPHAN_BIN", full))
-    return results
+                convertible.append(full)
+            elif ext == ".bin" and full not in cue_bins:
+                orphan_bins.append(full)
+            # .bin in cue_bins → handled by its .cue, skip
+
+    return convertible, orphan_bins
+
 
 def check_bad_dump(iso_path, mode="size", log_fn=None):
     try:
@@ -232,6 +245,15 @@ def rezip_to_7z(chd_path, output_7z, compression=5, log_fn=None, progress_fn=Non
 # ── chdman wrapper ───────────────────────────────────────────────
 
 def run_chdman(input_file, output_file, chd_type, log_fn=None, progress_fn=None):
+    # Hard guard: never pass a bare .bin to chdman — it will hang at 0%
+    if input_file.lower().endswith(".bin"):
+        cue = os.path.splitext(input_file)[0] + ".cue"
+        if not os.path.exists(cue):
+            raise RuntimeError(
+                f"Cannot convert '{os.path.basename(input_file)}': no matching .cue file found. "
+                "Multi-track .bin files require a .cue sheet. "
+                "Re-archive this game with its .cue included."
+            )
     if chd_type == "hd":
         cmd = ["chdman", "createhd", "-i", input_file, "-o", output_file, "-f"]
     else:
@@ -334,13 +356,23 @@ class ConversionWorker:
                     extract_archive(file_path, tmp_dir, log_fn=log, progress_fn=ext_pfn)
                     self.update_job(job_id, progress=25)
 
-                    cue_files   = find_cue_files(tmp_dir)
-                    iso_files   = find_iso_files(tmp_dir)
+                    cue_files              = find_cue_files(tmp_dir)
+                    iso_files, orphan_bins = find_iso_files(tmp_dir)
+
+                    # Log any orphan .bin files (no .cue) so the user knows why they were skipped
+                    for obin in orphan_bins:
+                        log(f"⚠️  Skipped '{os.path.basename(obin)}': no matching .cue file. "
+                            "Re-archive this game with its .cue included.", "error")
+
                     convertible = cue_files if cue_files else iso_files
 
                     if not convertible:
-                        log("No convertible files found in archive.", "error")
-                        self.update_job(job_id, status="failed", error="No ISO/CUE files found")
+                        if orphan_bins:
+                            self.update_job(job_id, status="failed",
+                                            error="Only orphan .bin files found — no .cue sheets")
+                        else:
+                            log("No convertible files found in archive.", "error")
+                            self.update_job(job_id, status="failed", error="No ISO/CUE files found")
                         return
 
                     log(f"Found {len(convertible)} file(s) to convert")
@@ -348,13 +380,6 @@ class ConversionWorker:
                     success_count = 0
 
                     for i, src in enumerate(convertible):
-                        # ── ORPHAN BIN — skip and warn ────────────
-                        if isinstance(src, tuple) and src[0] == "ORPHAN_BIN":
-                            log(f"⚠️  Skipped {os.path.basename(src[1])}: no .cue file found. "
-                                "Multi-track .bin files require a .cue sheet to convert correctly. "
-                                "Re-archive this game with its .cue included.", "error")
-                            continue
-
                         # ── RUNNING ───────────────────────────────
                         self.update_job(job_id, status="running")
                         chd_type = self.settings.get("chd_type", "auto")

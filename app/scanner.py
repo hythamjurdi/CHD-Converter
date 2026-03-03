@@ -2,7 +2,10 @@ import os, time, logging
 
 logger = logging.getLogger(__name__)
 
-CONVERTIBLE_EXTENSIONS = {".iso", ".img", ".bin", ".cue", ".mdf", ".nrg",
+# Note: .bin is intentionally excluded — bare .bin files without a .cue
+# cannot be converted and would hang chdman. Only .cue files are queued;
+# the .bin is read automatically via the .cue sheet.
+CONVERTIBLE_EXTENSIONS = {".iso", ".img", ".cue", ".mdf", ".nrg",
                            ".7z", ".zip", ".rar", ".tar", ".gz", ".tgz"}
 
 def find_convertible_files(folder, recursive=True):
