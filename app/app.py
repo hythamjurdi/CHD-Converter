@@ -45,6 +45,7 @@ scanner_instance     = [None]
 ra_scan_jobs         = {}   # path -> {status, hash, exe, game_id, game_title, error}
 ra_scan_lock         = threading.Lock()
 ra_scan_thread       = [None]
+ra_scan_progress     = {"total": 0, "done": 0, "current": "", "running": False}
 
 batch_stats          = {"elapsed_samples": [], "completed_this_batch": 0}
 
@@ -465,18 +466,31 @@ def ra_scan():
 
     # Launch background thread if not already running
     def run_scan():
+        from ra_hasher import compute_ra_hash, lookup_ra_hash
         pending = [p for p in chd_files if ra_scan_jobs.get(p, {}).get("status") == "pending"]
+        ra_scan_progress["total"]   = len(chd_files)
+        ra_scan_progress["done"]    = sum(1 for p in chd_files
+                                          if ra_scan_jobs.get(p, {}).get("status")
+                                          not in ("pending", "hashing"))
+        ra_scan_progress["running"] = True
+        ra_scan_progress["current"] = ""
+
         for path in pending:
+            fname = os.path.basename(path)
             with ra_scan_lock:
                 if ra_scan_jobs.get(path, {}).get("status") != "pending":
+                    ra_scan_progress["done"] += 1
                     continue
                 ra_scan_jobs[path]["status"] = "hashing"
-            broadcast_event("ra_update", {**ra_scan_jobs[path], "path": path})
 
-            from ra_hasher import compute_ra_hash, lookup_ra_hash
+            ra_scan_progress["current"] = fname
+            broadcast_event("ra_update", {**ra_scan_jobs[path], "path": path,
+                                          "filename": fname, "_progress": dict(ra_scan_progress)})
+
             md5, exe, err = compute_ra_hash(path)
 
-            entry = ra_scan_jobs[path]
+            entry = ra_scan_jobs[path].copy()
+            entry["filename"] = fname
             if err:
                 entry.update({"status": "error", "error": err})
             else:
@@ -490,14 +504,20 @@ def ra_scan():
                     entry.update({"status": "api_error", "error": ra_result["error"]})
                 elif ra_result["found"]:
                     entry.update({"status": "matched",
-                                  "game_id": ra_result["game_id"],
+                                  "game_id":    ra_result["game_id"],
                                   "game_title": ra_result["game_title"]})
                 else:
                     entry["status"] = "not_found"
 
+            ra_scan_progress["done"] += 1
             with ra_scan_lock:
                 ra_scan_jobs[path] = entry
-            broadcast_event("ra_update", {**entry, "path": path})
+            broadcast_event("ra_update", {**entry, "path": path,
+                                          "_progress": dict(ra_scan_progress)})
+
+        ra_scan_progress["running"] = False
+        ra_scan_progress["current"] = ""
+        broadcast_event("ra_scan_done", dict(ra_scan_progress))
 
     t = threading.Thread(target=run_scan, daemon=True)
     with ra_scan_lock:
@@ -511,6 +531,14 @@ def ra_scan():
 def ra_results():
     with ra_scan_lock:
         return jsonify([{**v, "path": k} for k, v in ra_scan_jobs.items()])
+
+
+@app.route("/api/ra/status", methods=["GET"])
+def ra_status():
+    """Return current scan progress — used by frontend on page load to restore state."""
+    with ra_scan_lock:
+        results = [{**v, "path": k} for k, v in ra_scan_jobs.items()]
+    return jsonify({"progress": ra_scan_progress, "results": results})
 
 
 @app.route("/api/ra/single", methods=["POST"])

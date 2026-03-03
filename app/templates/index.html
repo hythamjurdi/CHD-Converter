@@ -344,7 +344,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
           </div>
 
           <!-- Live status banner -->
-          <div id="raLiveStatus" style="display:none;padding:10px 24px;background:color-mix(in srgb,var(--accent2) 8%,var(--surface2));border-bottom:1px solid var(--border);font-size:12px;color:var(--accent2);display:flex;align-items:center;gap:10px">
+          <div id="raLiveStatus" style="display:none;padding:10px 24px;background:color-mix(in srgb,var(--accent2) 8%,var(--surface2));border-bottom:1px solid var(--border);font-size:12px;color:var(--accent2);align-items:center;gap:10px">
             <span style="animation:spin 1s linear infinite;display:inline-block">⏳</span>
             <span id="raLiveText">Scanning…</span>
           </div>
@@ -1596,16 +1596,34 @@ function registerRAListener() {
     raResults[d.path] = d;
     updateRARow(d);
     updateRASummary();
-    // Update live status banner
-    const liveEl = document.getElementById('raLiveText');
-    const fname = d.path ? d.path.split('/').pop() : '';
-    if (d.status === 'hashing') {
-      liveEl.textContent = 'Hashing: ' + fname;
-      document.getElementById('raLiveStatus').style.display = 'flex';
-    } else if (d.status === 'matched') {
-      liveEl.textContent = '✅ ' + (d.game_title || fname);
-    } else if (d.status === 'not_found') {
-      liveEl.textContent = '❌ Not found: ' + fname;
+    // Update live status banner with progress
+    if (d._progress) {
+      const p = d._progress;
+      const pct = p.total > 0 ? Math.round(p.done / p.total * 100) : 0;
+      const liveBar = document.getElementById('raLiveStatus');
+      const liveEl  = document.getElementById('raLiveText');
+      liveBar.style.display = 'flex';
+      const fname = d.path ? d.path.split('/').pop() : '';
+      if (d.status === 'hashing') {
+        liveEl.textContent = `[${p.done}/${p.total}] Hashing: ${fname}`;
+      } else if (d.status === 'matched') {
+        liveEl.textContent = `[${p.done}/${p.total}] ✅ ${d.game_title || fname}`;
+      } else if (d.status === 'not_found') {
+        liveEl.textContent = `[${p.done}/${p.total}] ❌ Not found: ${fname}`;
+      } else if (d.status === 'error' || d.status === 'api_error') {
+        liveEl.textContent = `[${p.done}/${p.total}] ⚠️ Error: ${fname}`;
+      }
+    }
+  });
+
+  eventSource.addEventListener('ra_scan_done', e => {
+    const p = JSON.parse(e.data);
+    document.getElementById('raLiveStatus').style.display = 'none';
+    // Re-enable scan button
+    const btn = document.getElementById('raScanBtn');
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Scan';
     }
   });
 }
@@ -1693,6 +1711,9 @@ document.getElementById('raScanBtn').addEventListener('click', async () => {
   document.getElementById('raResultsList').querySelectorAll('[id^="ra-row-"]').forEach(el=>el.remove());
   document.getElementById('raEmptyMsg').style.display = 'flex';
   document.getElementById('raEmptyMsg').innerHTML = '<span style="font-size:40px">⏳</span>Scanning folder…';
+  const liveBar = document.getElementById('raLiveStatus');
+  liveBar.style.display = 'flex';
+  document.getElementById('raLiveText').textContent = 'Initializing…';
   try {
     const r = await fetch('/api/ra/scan', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -1713,16 +1734,47 @@ document.getElementById('raScanBtn').addEventListener('click', async () => {
   } catch(e) {
     document.getElementById('raEmptyMsg').innerHTML = `<span style="font-size:40px">❌</span>${esc(String(e))}`;
   }
+  document.getElementById('raLiveStatus').style.display = 'none';
   btn.disabled = false;
   btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Scan Folder';
 });
 
 // Set default folder from settings when tab opens
 document.getElementById('mainTabRA').addEventListener('click', () => {
-  // Init folder type dropdown (defaults to destination)
   raFolderTypeChanged();
   updateRASummary();
+  // Restore scan state in case page was loaded while a scan was running
+  raRestoreState();
 });
+
+async function raRestoreState() {
+  try {
+    const d = await fetch('/api/ra/status').then(r => r.json());
+    const results = d.results || [];
+    const p = d.progress || {};
+    if (results.length === 0) return;
+
+    // Populate raResults and render
+    results.forEach(item => { raResults[item.path] = item; });
+    renderRAList();
+    document.getElementById('raSummaryBar').style.display = 'flex';
+    updateRASummary();
+
+    // Show live bar if scan still running
+    const liveBar = document.getElementById('raLiveStatus');
+    const liveEl  = document.getElementById('raLiveText');
+    const btn     = document.getElementById('raScanBtn');
+    if (p.running) {
+      liveBar.style.display = 'flex';
+      liveEl.textContent = p.current
+        ? `[${p.done}/${p.total}] Hashing: ${p.current}`
+        : `[${p.done}/${p.total}] Scanning…`;
+      if (btn) { btn.disabled = true; btn.textContent = 'Scanning…'; }
+    } else if (results.length > 0) {
+      liveBar.style.display = 'none';
+    }
+  } catch(e) {}
+}
 
 registerRAListener();
 </script>
