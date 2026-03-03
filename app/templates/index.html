@@ -1540,8 +1540,7 @@ function showHistoryLog(jobId) {
   const levelColor = {info:'var(--text)', warn:'var(--warning)', error:'var(--error)', success:'var(--success)'};
   document.getElementById('historyLogBody').innerHTML = e.log.map(l =>
     `<span style="color:var(--text-muted);user-select:none">${l.time}  </span><span style="color:${levelColor[l.level]||'var(--text)'}">${esc(l.msg)}</span>`
-  ).join('
-');
+  ).join('<br>');
   modal.style.display = 'flex'; modal.style.alignItems = 'center'; modal.style.justifyContent = 'center';
 }
 
