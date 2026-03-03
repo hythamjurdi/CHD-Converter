@@ -48,7 +48,7 @@ ra_scan_thread       = [None]
 
 batch_stats          = {"elapsed_samples": [], "completed_this_batch": 0}
 
-APP_VERSION = "1.1.3"
+APP_VERSION = "1.1.2"
 
 @app.route("/version")
 def get_version():
