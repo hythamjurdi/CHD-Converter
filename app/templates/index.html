@@ -1063,7 +1063,7 @@ function updateScanFooter() {
   document.getElementById('startConvBtn').disabled = checked === 0;
 }
 
-async // ── Dupe scanner ──────────────────────────────────────────────────
+// ── Dupe scanner ──────────────────────────────────────────────────
 let _dupePendingPaths = [];   // paths the user wants to queue (set before dupe check)
 let _dupeResults     = [];   // dupes returned from API
 let _dupeSkipPaths   = new Set();  // paths user decided to skip
