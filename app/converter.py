@@ -404,11 +404,12 @@ class ConversionWorker:
                     except Exception:
                         pass
 
-    def _out_base(self, src_path, archive_path, game_name):
-        """Determine the output base filename."""
-        if game_name:
-            return game_name
-        if archive_path and self.settings.get("rename_to_archive", False):
+    def _out_base(self, src_path, archive_path, game_name=None):
+        """Determine the output base filename.
+        Always uses the archive name (or source filename) — never the game DB name.
+        Game DB is display-only; it never affects where files are written.
+        """
+        if archive_path:
             return os.path.splitext(os.path.basename(archive_path))[0]
         return os.path.splitext(os.path.basename(src_path))[0]
 
@@ -546,7 +547,11 @@ class ConversionWorker:
                             self.update_job(job_id, bad_dump=is_bad, bad_dump_reason=reason)
                             if is_bad: log(f"⚠️  Bad dump: {reason}", "warn")
 
-                        disc_id, game_name = None, None
+                        # Output is always named after the archive — game DB is display-only
+                        base    = self._out_base(src, file_path)
+                        out_chd = os.path.join(dest_folder, base + ".chd")
+
+                        # Disc ID detection: display badge only, never affects output name
                         if do_lookup:
                             from game_db import get_game_name
                             disc_id, game_name = get_game_name(src, iso_path=src)
@@ -556,19 +561,6 @@ class ConversionWorker:
                             elif disc_id:
                                 log(f"Disc ID: {disc_id} (not in database)", "warn")
                                 self.update_job(job_id, disc_id=disc_id)
-
-                        base    = self._out_base(src, file_path, game_name)
-                        out_chd = os.path.join(dest_folder, base + ".chd")
-
-                        # Warn if the disc's game name doesn't match the archive filename
-                        # (indicates a mislabeled or bad dump)
-                        if game_name:
-                            archive_norm = _normalize_name(os.path.basename(file_path))
-                            game_norm    = _normalize_name(game_name)
-                            if game_norm not in archive_norm and archive_norm not in game_norm:
-                                log(f"⚠️  Disc ID mismatch: archive is '{os.path.splitext(os.path.basename(file_path))[0]}' "
-                                    f"but disc inside identifies as '{game_name}' ({disc_id}). "
-                                    f"This may be a mislabeled or bad dump.", "warn")
 
                         log(f"[{i+1}/{total}] {os.path.basename(src)} → {base}.chd ({chd_type.upper()})")
 
@@ -641,7 +633,10 @@ class ConversionWorker:
                     self.update_job(job_id, bad_dump=is_bad, bad_dump_reason=reason)
                     if is_bad: log(f"⚠️  Bad dump: {reason}", "warn")
 
-                disc_id, game_name = None, None
+                # Output is always named after the source file — game DB is display-only
+                base    = self._out_base(file_path, None)
+
+                # Disc ID detection: display badge only, never affects output name
                 if do_lookup:
                     from game_db import get_game_name
                     disc_id, game_name = get_game_name(file_path, iso_path=file_path)
@@ -651,8 +646,6 @@ class ConversionWorker:
                     elif disc_id:
                         log(f"Disc ID: {disc_id} (not in DB)", "warn")
                         self.update_job(job_id, disc_id=disc_id)
-
-                base    = self._out_base(file_path, None, game_name)
                 out_chd = os.path.join(dest_folder, base + ".chd")
 
                 # Fast normalized duplicate check (same logic as archive path)
