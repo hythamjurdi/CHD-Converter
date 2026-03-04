@@ -330,7 +330,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
           </div>
 
           <!-- Summary bar -->
-          <div id="raSummaryBar" style="display:none;padding:10px 24px;border-bottom:1px solid var(--border);display:flex;gap:16px;font-size:12px;font-weight:600;flex-shrink:0;flex-wrap:wrap">
+          <div id="raSummaryBar" style="display:none;padding:10px 24px;border-bottom:1px solid var(--border);gap:16px;font-size:12px;font-weight:600;flex-shrink:0;flex-wrap:wrap">
             <span>📦 <span id="raTotalCount">0</span> CHDs</span>
             <span style="color:var(--success)">✅ <span id="raMatchedCount">0</span> recognized</span>
             <span style="color:var(--error)">❌ <span id="raNotFoundCount">0</span> not found</span>
@@ -427,9 +427,9 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
             <div class="toggle-group"><div class="toggle-info"><div class="toggle-label">Compute RA hash after each conversion</div><div class="toggle-desc">Non-blocking — runs after CHD is created, logs result</div></div><label class="toggle"><input type="checkbox" id="settRAHash"><span class="toggle-slider"></span></label></div>
 
             <!-- Credentials block — locked/unlocked states -->
-            <div id="raCredsLocked" style="display:none;margin-top:12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <div id="raCredsLocked" style="display:none;margin-top:12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;align-items:center;justify-content:space-between;gap:8px">
               <div>
-                <div style="font-size:12px;color:var(--text-muted);margin-bottom:2px">Saved credentials</div>
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:2px">Connected as</div>
                 <div style="font-size:13px;font-weight:600" id="raLockedUser">—</div>
                 <div style="font-size:11px;color:var(--text-muted);font-family:monospace" id="raLockedKey">—</div>
               </div>
@@ -437,10 +437,12 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
             </div>
 
             <div id="raCredsEdit" style="margin-top:12px">
-              <div class="form-group"><label>RA Username</label>
+              <div class="form-group">
+                <label>RA Username</label>
                 <input type="text" id="settRAUser" placeholder="your_ra_username" autocomplete="off">
               </div>
-              <div class="form-group"><label>RA API Key — <a href="https://retroachievements.org/settings" target="_blank" style="color:var(--accent);font-size:11px">get it here</a></label>
+              <div class="form-group">
+                <label>RA API Key — <a href="https://retroachievements.org/settings" target="_blank" style="color:var(--accent);font-size:11px">get it here</a></label>
                 <input type="text" id="settRAKey" placeholder="your_api_key" style="font-family:monospace" autocomplete="off">
               </div>
               <button class="btn btn-primary btn-sm" id="raCredsBtn" onclick="raSaveCreds()" style="margin-top:4px">Save &amp; Verify</button>
@@ -448,6 +450,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
           </div>
           <div class="settings-footer">
             <button class="btn btn-outline" id="resetSettBtn">Reset</button>
+            <button class="btn btn-outline" id="clearTempBtn" onclick="clearTempFiles()" title="Delete leftover extraction temp folders">🗑 Clear Temp</button>
             <button class="btn btn-primary" id="saveSettBtn">💾 Save Settings</button>
           </div>
         </div>
@@ -1234,6 +1237,30 @@ async function startSelectedConversions() {
 }
 
 function closeScanModal() { document.getElementById('scanModal').style.display = 'none'; }
+
+async function clearTempFiles() {
+  const btn = document.getElementById('clearTempBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Clearing…';
+  try {
+    const r = await fetch('/api/temp/clear', {method:'POST'});
+    const d = await r.json();
+    if (!d.ok) {
+      btn.textContent = '⛔ ' + (d.error || 'Blocked');
+      setTimeout(() => { btn.disabled = false; btn.textContent = '🗑 Clear Temp'; }, 3000);
+      return;
+    }
+    const freed = d.freed_bytes > 0
+      ? ' (' + fmtBytes(d.freed_bytes) + ' freed)'
+      : '';
+    btn.textContent = d.removed === 0
+      ? '✅ Nothing to clear'
+      : '✅ Removed ' + d.removed + ' folder' + (d.removed !== 1 ? 's' : '') + freed;
+  } catch(e) {
+    btn.textContent = '❌ Error';
+  }
+  setTimeout(() => { btn.disabled = false; btn.textContent = '🗑 Clear Temp'; }, 3500);
+}
 
 // ── History ──────────────────────────────────────────────────────
 async function loadHistory() {
@@ -2042,43 +2069,7 @@ registerRAListener();
   } catch(e) {}
 })();
 
-// Poll /api/ra/status while a scan is running — catches up after page refresh
-let raPollInterval = null;
-function startRAPoll() {
-  if (raPollInterval) return;
-  raPollInterval = setInterval(async () => {
-    try {
-      const d = await fetch('/api/ra/status').then(r => r.json());
-      const p = d.progress || {};
-      const results = d.results || [];
-      results.forEach(item => { raResults[item.path] = item; });
-      if (document.getElementById('viewRA').style.display !== 'none') {
-        renderRAList();
-        updateRASummary();
-      }
-      const liveEl = document.getElementById('raLiveText');
-      if (p.running) {
-        document.getElementById('raLiveStatus').style.display = 'flex';
-        liveEl.textContent = p.current
-          ? `[${p.done}/${p.total}] Hashing: ${p.current}`
-          : `[${p.done}/${p.total}] Scanning…`;
-      } else {
-        stopRAPoll();
-        raShowScanActive(false);
-        document.getElementById('raLiveStatus').style.display = 'none';
-        const btn = document.getElementById('raScanBtn');
-        if (btn) {
-          btn.disabled = false;
-          btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Scan';
-        }
-      }
-    } catch(e) {}
-  }, 3000);
-}
-function stopRAPoll() {
-  clearInterval(raPollInterval);
-  raPollInterval = null;
-}
+
 </script>
 
 <!-- Dupe Scanner Modal -->

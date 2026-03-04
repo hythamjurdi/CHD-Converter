@@ -618,6 +618,45 @@ def ra_stop():
     return jsonify({"ok": True})
 
 
+@app.route("/api/temp/clear", methods=["POST"])
+def clear_temp():
+    """Delete leftover chd_extract_* and ra_* temp directories.
+    Blocked while any job is actively running/extracting."""
+    active_statuses = {"running", "extracting", "rezipping"}
+    with jobs_lock:
+        active = [j for j in jobs.values() if j["status"] in active_statuses]
+    if active:
+        return jsonify({"ok": False, "error": "Cannot clear temp files while conversions are running."}), 409
+
+    import glob, shutil as _sh
+    removed, freed = 0, 0
+    prefixes = ["chd_extract_", "ra_", "cue_"]
+    search_dirs = ["/tmp", effective_dest(), effective_source()]
+
+    for d in search_dirs:
+        if not d or not os.path.isdir(d):
+            continue
+        try:
+            for entry in os.listdir(d):
+                if any(entry.startswith(p) for p in prefixes):
+                    full = os.path.join(d, entry)
+                    if os.path.isdir(full):
+                        try:
+                            size = sum(
+                                os.path.getsize(os.path.join(r, f))
+                                for r, _, fs in os.walk(full) for f in fs
+                            )
+                            _sh.rmtree(full, ignore_errors=True)
+                            removed += 1
+                            freed += size
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+    return jsonify({"ok": True, "removed": removed, "freed_bytes": freed})
+
+
 @app.route("/api/ra/single", methods=["POST"])
 def ra_single():
     """Hash a single CHD and return result synchronously."""
