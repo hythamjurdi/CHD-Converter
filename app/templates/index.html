@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CHD Converter</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%236366f1'/%3E%3Ccircle cx='32' cy='32' r='18' fill='none' stroke='%23fff' stroke-width='3'/%3E%3Ccircle cx='32' cy='32' r='5' fill='%23fff'/%3E%3Cellipse cx='32' cy='32' rx='30' ry='6' fill='none' stroke='%2322d3ee' stroke-width='2.5' transform='rotate(-20 32 32)'/%3E%3C/svg%3E">
 <style>
 :root[data-theme="dark"]{--bg:#0f1117;--surface:#1a1d27;--surface2:#22263a;--border:#2e3347;--text:#e2e8f0;--text-muted:#6b7280;--accent:#6366f1;--accent-hover:#4f52e0;--accent2:#22d3ee;--success:#10b981;--warning:#f59e0b;--error:#ef4444;--running:#8b5cf6;--extracting:#06b6d4;--rezipping:#f97316;--shadow:0 4px 24px rgba(0,0,0,.4)}
 :root[data-theme="light"]{--bg:#f1f5f9;--surface:#fff;--surface2:#f8fafc;--border:#e2e8f0;--text:#1e293b;--text-muted:#64748b;--accent:#6366f1;--accent-hover:#4f52e0;--accent2:#0891b2;--success:#059669;--warning:#d97706;--error:#dc2626;--running:#7c3aed;--extracting:#0e7490;--rezipping:#c2410c;--shadow:0 4px 24px rgba(0,0,0,.08)}
@@ -322,6 +323,9 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 Scan
               </button>
+              <button class="btn btn-danger btn-sm" id="raStopBtn" style="display:none" onclick="raStopScan()">
+                ⏹ Stop
+              </button>
             </div>
           </div>
 
@@ -362,8 +366,10 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
         <div class="settings-panel">
           <div class="settings-section">
             <h3>📁 Folders</h3><p class="section-desc">Source and destination paths (Docker volume paths)</p>
-            <div class="form-group"><label>Source Folder</label><div class="folder-input-group"><input type="text" id="settSourceFolder" placeholder="/source"><button class="btn btn-outline btn-sm" data-browse="source">Browse</button></div></div>
-            <div class="form-group"><label>Destination Folder</label><div class="folder-input-group"><input type="text" id="settDestFolder" placeholder="/destination"><button class="btn btn-outline btn-sm" data-browse="dest">Browse</button></div></div>
+            <div class="form-group"><label>Source Folder <span style="font-size:11px;color:var(--text-muted)">(Docker mapping)</span></label><div class="folder-input-group"><input type="text" id="settSourceFolder" placeholder="/source"><button class="btn btn-outline btn-sm" data-browse="source">Browse</button></div></div>
+            <div class="form-group"><label>Source Sub-path <span style="font-size:11px;color:var(--text-muted)">(optional, e.g. PS2)</span></label><input type="text" id="settSourceSubfolder" placeholder="e.g. PS2 or Roms/PS2" style="width:100%"><div style="font-size:11px;color:var(--text-muted);margin-top:4px">Appended to Source Folder. Scan will use /source/PS2 etc.</div></div>
+            <div class="form-group"><label>Destination Folder <span style="font-size:11px;color:var(--text-muted)">(Docker mapping)</span></label><div class="folder-input-group"><input type="text" id="settDestFolder" placeholder="/destination"><button class="btn btn-outline btn-sm" data-browse="dest">Browse</button></div></div>
+            <div class="form-group"><label>Destination Sub-path <span style="font-size:11px;color:var(--text-muted)">(optional, e.g. PS2)</span></label><input type="text" id="settDestSubfolder" placeholder="e.g. PS2" style="width:100%"><div style="font-size:11px;color:var(--text-muted);margin-top:4px">Output CHDs go into /destination/PS2 etc.</div></div>
           </div>
           <div class="settings-section">
             <h3>⚙️ Conversion Options</h3><p class="section-desc">Control how files are converted</p>
@@ -613,7 +619,8 @@ function connectSSE() {
       // Check if queue is now fully idle
       const activeNow = Object.values(jobs).filter(x => ['running','extracting','rezipping'].includes(x.status)).length;
       const queuedNow = Object.values(jobs).filter(x => x.status === 'queued').length;
-      if (activeNow === 0 && queuedNow === 0 && (batchDone + batchFailed + batchSkipped) > 0) {
+      const batchTotal = batchDone + batchFailed + batchSkipped;
+      if (activeNow === 0 && queuedNow === 0 && batchTotal >= 2) {
         stopETA();
         showBatchReport();
         batchReset();
@@ -1131,7 +1138,9 @@ async function loadSettings() { const r = await fetch('/api/settings'); settings
 function applySettingsToForm() {
   const s = settings;
   document.getElementById('settSourceFolder').value    = s.source_folder||'/source';
+  document.getElementById('settSourceSubfolder').value = s.source_subfolder||'';
   document.getElementById('settDestFolder').value      = s.destination_folder||'/destination';
+  document.getElementById('settDestSubfolder').value   = s.dest_subfolder||'';
   document.getElementById('settChdType').value         = s.chd_type||'auto';
   document.getElementById('settOverwrite').value       = s.overwrite_existing||'ask';
   document.getElementById('settWorkers').value         = s.max_workers||1;
@@ -1153,7 +1162,9 @@ function applySettingsToForm() {
 function collectSettings() {
   return {
     source_folder:           document.getElementById('settSourceFolder').value,
+    source_subfolder:        document.getElementById('settSourceSubfolder').value,
     destination_folder:      document.getElementById('settDestFolder').value,
+    dest_subfolder:          document.getElementById('settDestSubfolder').value,
     chd_type:                document.getElementById('settChdType').value,
     overwrite_existing:      document.getElementById('settOverwrite').value,
     max_workers:             parseInt(document.getElementById('settWorkers').value)||1,
@@ -1620,6 +1631,7 @@ function registerRAListener() {
     stopRAPoll();
     const p = JSON.parse(e.data);
     document.getElementById('raLiveStatus').style.display = 'none';
+    raShowScanActive(false);
     // Re-enable scan button
     const btn = document.getElementById('raScanBtn');
     if (btn) {
@@ -1716,6 +1728,7 @@ document.getElementById('raScanBtn').addEventListener('click', async () => {
   liveBar.style.display = 'flex';
   document.getElementById('raLiveText').textContent = 'Initializing…';
   startRAPoll();
+  raShowScanActive(true);
   try {
     const r = await fetch('/api/ra/scan', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -1735,10 +1748,10 @@ document.getElementById('raScanBtn').addEventListener('click', async () => {
     }
   } catch(e) {
     document.getElementById('raEmptyMsg').innerHTML = `<span style="font-size:40px">❌</span>${esc(String(e))}`;
+    document.getElementById('raLiveStatus').style.display = 'none';
+    btn.disabled = false;
+    btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Scan Folder';
   }
-  document.getElementById('raLiveStatus').style.display = 'none';
-  btn.disabled = false;
-  btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Scan Folder';
 });
 
 // Set default folder from settings when tab opens
@@ -1748,6 +1761,15 @@ document.getElementById('mainTabRA').addEventListener('click', () => {
   // Restore scan state in case page was loaded while a scan was running
   raRestoreState();
 });
+
+async function raStopScan() {
+  try { await fetch('/api/ra/stop', {method:'POST'}); } catch(e) {}
+  document.getElementById('raStopBtn').style.display = 'none';
+}
+
+function raShowScanActive(active) {
+  document.getElementById('raStopBtn').style.display  = active ? 'inline-flex' : 'none';
+}
 
 async function raRestoreState() {
   try {
@@ -1762,7 +1784,7 @@ async function raRestoreState() {
     document.getElementById('raSummaryBar').style.display = 'flex';
     updateRASummary();
 
-    // Show live bar if scan still running
+    // Show live bar and start polling if scan still running
     const liveBar = document.getElementById('raLiveStatus');
     const liveEl  = document.getElementById('raLiveText');
     const btn     = document.getElementById('raScanBtn');
@@ -1772,11 +1794,55 @@ async function raRestoreState() {
         ? `[${p.done}/${p.total}] Hashing: ${p.current}`
         : `[${p.done}/${p.total}] Scanning…`;
       if (btn) { btn.disabled = true; btn.textContent = 'Scanning…'; }
+      raShowScanActive(true);
+      // Start polling loop to keep UI fresh even if SSE drops
+      startRAPoll();
     } else if (results.length > 0) {
       liveBar.style.display = 'none';
     }
   } catch(e) {}
 }
+
+// Polling fallback — runs every 3s while a scan is active
+let raPollTimer = null;
+function startRAPoll() {
+  if (raPollTimer) return;
+  raPollTimer = setInterval(async () => {
+    try {
+      const d = await fetch('/api/ra/status').then(r => r.json());
+      const results = d.results || [];
+      const p = d.progress || {};
+      results.forEach(item => {
+        const prev = raResults[item.path];
+        if (!prev || prev.status !== item.status) {
+          raResults[item.path] = item;
+          updateRARow(item);
+        }
+      });
+      updateRASummary();
+      const liveEl = document.getElementById('raLiveText');
+      if (p.running) {
+        liveEl.textContent = p.current
+          ? `[${p.done}/${p.total}] Hashing: ${p.current}`
+          : `[${p.done}/${p.total}] Scanning…`;
+      } else {
+        stopRAPoll();
+        raShowScanActive(false);
+        document.getElementById('raLiveStatus').style.display = 'none';
+        const btn = document.getElementById('raScanBtn');
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Scan';
+        }
+      }
+    } catch(e) {}
+  }, 3000);
+}
+function stopRAPoll() {
+  clearInterval(raPollTimer);
+  raPollTimer = null;
+}
+
 
 registerRAListener();
 
@@ -1830,6 +1896,7 @@ function startRAPoll() {
           : `[${p.done}/${p.total}] Scanning…`;
       } else {
         stopRAPoll();
+        raShowScanActive(false);
         document.getElementById('raLiveStatus').style.display = 'none';
         const btn = document.getElementById('raScanBtn');
         if (btn) {

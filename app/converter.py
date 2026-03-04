@@ -8,6 +8,52 @@ MIN_ISO_SIZE       = 1 * 1024 * 1024
 MAX_ISO_SIZE       = 9.5 * 1024 * 1024 * 1024
 
 
+def _normalize_name(s):
+    # Strip parentheticals/brackets for fuzzy duplicate matching:
+    # "The Simpsons (USA) (v1.5)" -> "the simpsons"
+    s = os.path.splitext(s)[0]
+    s = re.sub(r'[\(\[][^\)\]]*[\)\]]', '', s)
+    s = re.sub(r'\s+', ' ', s).strip()
+    return s.lower()
+
+
+def build_dest_chd_set(dest_folder):
+    # Walk dest_folder once and return normalized names of all CHD/7z files.
+    names = set()
+    try:
+        for root, _, files in os.walk(dest_folder):
+            for f in files:
+                if f.lower().endswith(('.chd', '.7z')):
+                    names.add(_normalize_name(f))
+    except Exception:
+        pass
+    return names
+
+
+def make_temp_cue(bin_path, tmp_dir):
+    # Auto-generate a minimal CUE sheet for a bare BIN file.
+    # Detects Mode1 vs Mode2 from the raw sync pattern at sector 0.
+    mode = 'MODE2/2352'
+    try:
+        with open(bin_path, 'rb') as f:
+            header = f.read(16)
+        sync = b'\x00\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\x00'
+        if header[:12] == sync:
+            mode_byte = header[15] if len(header) > 15 else 2
+            mode = 'MODE1/2352' if mode_byte == 1 else 'MODE2/2352'
+        else:
+            mode = 'MODE1/2048'
+    except Exception:
+        pass
+    cue_name = os.path.splitext(os.path.basename(bin_path))[0] + '.cue'
+    cue_path = os.path.join(tmp_dir, cue_name)
+    with open(cue_path, 'w') as f:
+        f.write('FILE "%s" BINARY\n' % os.path.basename(bin_path))
+        f.write('  TRACK 01 %s\n' % mode)
+        f.write('    INDEX 01 00:00:00\n')
+    return cue_path
+
+
 # ── Detection helpers ────────────────────────────────────────────
 
 def detect_chd_type(file_path):
@@ -270,24 +316,31 @@ def rezip_to_7z(chd_path, output_7z, compression=5, log_fn=None, progress_fn=Non
 # ── chdman wrapper ───────────────────────────────────────────────
 
 def run_chdman(input_file, output_file, chd_type, log_fn=None, progress_fn=None):
-    # Hard guard: never pass a bare .bin to chdman — it will hang at 0%
-    if input_file.lower().endswith(".bin"):
-        cue = os.path.splitext(input_file)[0] + ".cue"
-        if not os.path.exists(cue):
-            raise RuntimeError(
-                f"Cannot convert '{os.path.basename(input_file)}': no matching .cue file found. "
-                "Multi-track .bin files require a .cue sheet. "
-                "Re-archive this game with its .cue included."
-            )
-    if chd_type == "hd":
-        cmd = ["chdman", "createhd", "-i", input_file, "-o", output_file, "-f"]
-    else:
-        cmd = ["chdman", "createcd", "-i", input_file, "-o", output_file, "-f"]
-    if log_fn: log_fn(f"Running: {' '.join(cmd)}")
-    rc = _run_with_progress(cmd, log_fn=log_fn, progress_fn=progress_fn)
-    if rc != 0:
-        raise RuntimeError(f"chdman failed (exit code {rc})")
-    return output_file
+    # Auto-generate a temp CUE if only a bare .bin is given — chdman needs it
+    _tmp_cue_dir = None
+    try:
+        if input_file.lower().endswith(".bin"):
+            cue = os.path.splitext(input_file)[0] + ".cue"
+            if not os.path.exists(cue):
+                _tmp_cue_dir = tempfile.mkdtemp(prefix="cue_")
+                # Copy/link the bin so the temp CUE can reference it by name
+                import shutil as _sh
+                _sh.copy2(input_file, os.path.join(_tmp_cue_dir, os.path.basename(input_file)))
+                cue = make_temp_cue(input_file, _tmp_cue_dir)
+                if log_fn: log_fn(f"Auto-generated CUE for bare BIN ({os.path.basename(input_file)})", "warn")
+                input_file = cue  # pass the CUE to chdman
+        if chd_type == "hd":
+            cmd = ["chdman", "createhd", "-i", input_file, "-o", output_file, "-f"]
+        else:
+            cmd = ["chdman", "createcd", "-i", input_file, "-o", output_file, "-f"]
+        if log_fn: log_fn(f"Running: {' '.join(cmd)}")
+        rc = _run_with_progress(cmd, log_fn=log_fn, progress_fn=progress_fn)
+        if rc != 0:
+            raise RuntimeError(f"chdman failed (exit code {rc})")
+        return output_file
+    finally:
+        if _tmp_cue_dir:
+            shutil.rmtree(_tmp_cue_dir, ignore_errors=True)
 
 
 # ── Conversion Worker ────────────────────────────────────────────
@@ -363,6 +416,9 @@ class ConversionWorker:
         file_path   = job["file_path"]
         ext         = os.path.splitext(file_path)[1].lower()
         dest_folder = self.settings.get("destination_folder", "/destination")
+        dest_sub    = self.settings.get("dest_subfolder", "").strip("/")
+        if dest_sub:
+            dest_folder = os.path.join(dest_folder, dest_sub)
         os.makedirs(dest_folder, exist_ok=True)
 
         # Record input size for compression ratio report
@@ -405,36 +461,36 @@ class ConversionWorker:
 
                   # Pre-extraction conflict check (enabled in settings for duplicate detection)
                 if self.settings.get("pre_check_before_extract", False):
-                  # Pre-extraction conflict check: peek inside archive (~0.2s, no decompression)
-                    # to get ISO names, then check if CHD already exists BEFORE extracting.
+                    # Fast duplicate check: normalize names and scan dest folder once.
+                    # Ignores parenthetical differences: "Game (USA)" matches "Game (v2)"
                     archive_base  = os.path.splitext(os.path.basename(file_path))[0]
                     overwrite_set = self.settings.get("overwrite_existing", "ask")
+                    norm_archive  = _normalize_name(archive_base)
 
-                    if self.settings.get("rename_to_archive", False):
-                        candidate_bases = [archive_base]
-                    else:
-                        peeked = peek_archive_iso_names(file_path)
-                        candidate_bases = peeked if peeked else [archive_base]
+                    dest_names = build_dest_chd_set(dest_folder)
 
-                    if not do_lookup:
-                        for cbase in candidate_bases:
-                            pre_chd = os.path.join(dest_folder, cbase + ".chd")
-                            pre_7z  = os.path.join(dest_folder, cbase + ".7z")
-                            target  = pre_7z if (do_rezip and os.path.exists(pre_7z)) else pre_chd
-                            if os.path.exists(target):
-                                conflict_result = self._handle_conflict(job_id, target, log)
-                                if conflict_result == "skip":
-                                    self.update_job(job_id, status="skipped", progress=100)
-                                    log(f"Skipped (already exists, no extraction needed): {os.path.basename(target)}", "warn")
-                                    return
-                                break
-                    else:
-                        if overwrite_set == "skip":
-                            quick_chd = os.path.join(dest_folder, archive_base + ".chd")
-                            if os.path.exists(quick_chd):
+                    if norm_archive in dest_names or overwrite_set == "skip":
+                        # Also check exact name for overwrite=ask/overwrite cases
+                        if norm_archive in dest_names:
+                            if overwrite_set == "skip":
                                 self.update_job(job_id, status="skipped", progress=100)
-                                log(f"Skipped (already exists, no extraction needed): {archive_base}.chd", "warn")
+                                log(f"Skipped (duplicate detected pre-extraction): {archive_base}", "warn")
                                 return
+                            elif overwrite_set == "ask":
+                                # Find the actual matching file for conflict dialog
+                                for root, _, files in os.walk(dest_folder):
+                                    for fname in files:
+                                        if fname.lower().endswith(('.chd', '.7z')) and \
+                                                _normalize_name(fname) == norm_archive:
+                                            conflict_result = self._handle_conflict(
+                                                job_id, os.path.join(root, fname), log)
+                                            if conflict_result == "skip":
+                                                self.update_job(job_id, status="skipped", progress=100)
+                                                return
+                                            break
+                                    else:
+                                        continue
+                                    break
                 tmp_dir = tempfile.mkdtemp(prefix="chd_extract_")
                 try:
                     # ── EXTRACTING ────────────────────────────────

@@ -9,6 +9,8 @@ CONFIG_PATH = "/config/settings.json"
 DEFAULT_SETTINGS = {
     "source_folder":           "/source",
     "destination_folder":      "/destination",
+    "source_subfolder":        "",
+    "dest_subfolder":          "",
     "extract_archives":        True,
     "delete_iso_after":        False,
     "delete_archive_after":    False,
@@ -34,6 +36,18 @@ DEFAULT_SETTINGS = {
 job_queue            = queue.Queue()
 jobs                 = {}
 jobs_lock            = threading.Lock()
+
+
+def effective_source():
+    base = settings.get("source_folder", "/source")
+    sub  = settings.get("source_subfolder", "").strip("/")
+    return os.path.join(base, sub) if sub else base
+
+
+def effective_dest():
+    base = settings.get("destination_folder", "/destination")
+    sub  = settings.get("dest_subfolder", "").strip("/")
+    return os.path.join(base, sub) if sub else base
 sse_clients          = []
 sse_lock             = threading.Lock()
 conflict_events      = {}
@@ -46,6 +60,7 @@ ra_scan_jobs         = {}   # path -> {status, hash, exe, game_id, game_title, e
 ra_scan_lock         = threading.Lock()
 ra_scan_thread       = [None]
 ra_scan_progress     = {"total": 0, "done": 0, "current": "", "running": False}
+ra_scan_stop         = [False]   # set True to abort in-progress scan
 
 batch_stats          = {"elapsed_samples": [], "completed_this_batch": 0}
 
@@ -206,7 +221,7 @@ def get_single_job(job_id):
 @app.route("/api/jobs/scan", methods=["POST"])
 def scan_and_queue():
     from scanner import find_convertible_files
-    files = find_convertible_files(settings.get("source_folder", "/source"), settings.get("recursive_scan", True))
+    files = find_convertible_files(effective_source(), settings.get("recursive_scan", True))
     added, skipped = [], []
     for f in files:
         already = any(j["file_path"] == f and j["status"] in ("queued","running","extracting","rezipping","completed")
@@ -294,7 +309,7 @@ def scan_preview():
     """Return list of convertible files without queueing them."""
     from scanner import find_convertible_files
     files = find_convertible_files(
-        settings.get("source_folder", "/source"),
+        effective_source(),
         settings.get("recursive_scan", True)
     )
     active_paths = {j["file_path"] for j in jobs.values()
@@ -474,8 +489,14 @@ def ra_scan():
                                           not in ("pending", "hashing"))
         ra_scan_progress["running"] = True
         ra_scan_progress["current"] = ""
+        ra_scan_stop[0] = False
 
         for path in pending:
+            if ra_scan_stop[0]:
+                ra_scan_progress["running"] = False
+                broadcast_event("ra_scan_done", {**ra_scan_progress, "stopped": True})
+                return
+
             fname = os.path.basename(path)
             with ra_scan_lock:
                 if ra_scan_jobs.get(path, {}).get("status") != "pending":
@@ -539,6 +560,13 @@ def ra_status():
     with ra_scan_lock:
         results = [{**v, "path": k} for k, v in ra_scan_jobs.items()]
     return jsonify({"progress": ra_scan_progress, "results": results})
+
+
+@app.route("/api/ra/stop", methods=["POST"])
+def ra_stop():
+    """Signal the running RA scan to stop after the current file."""
+    ra_scan_stop[0] = True
+    return jsonify({"ok": True})
 
 
 @app.route("/api/ra/single", methods=["POST"])
