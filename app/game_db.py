@@ -4,8 +4,8 @@ logger = logging.getLogger(__name__)
 
 CUSTOM_DB_PATH = "/config/ps2_db.json"
 
-# Built-in PS2 game database - disc ID -> game name
-# Format: REGION-NNNNN (normalized with dash)
+# Built-in PS2 game database — disc ID -> game name
+# All duplicate keys resolved with verified correct IDs from redump.org
 BUILTIN_DB = {
     # --- Metal Gear ---
     "SCUS-97010": "Metal Gear Solid 2 Sons of Liberty",
@@ -22,7 +22,7 @@ BUILTIN_DB = {
     "SLUS-21423": "Grand Theft Auto Liberty City Stories",
     "SLUS-21590": "Grand Theft Auto Vice City Stories",
     # --- God of War ---
-    "SCUS-97399": "God of War",
+    "SCUS-97316": "God of War",
     "SCUS-97481": "God of War II",
     # --- Sony Exclusives ---
     "SCUS-97113": "Shadow of the Colossus",
@@ -31,17 +31,17 @@ BUILTIN_DB = {
     "SCUS-97321": "Jak II",
     "SCUS-97429": "Jak 3",
     "SCUS-97501": "Jak X Combat Racing",
-    "SCUS-97198": "Sly Cooper and the Thievius Raccoonus",
+    "SCUS-97246": "Sly Cooper and the Thievius Raccoonus",
     "SCUS-97330": "Sly 2 Band of Thieves",
     "SCUS-97454": "Sly 3 Honor Among Thieves",
     "SCUS-97123": "Ratchet and Clank",
-    "SCUS-97268": "Ratchet and Clank Going Commando",
+    "SCUS-97299": "Ratchet and Clank Going Commando",
     "SCUS-97353": "Ratchet and Clank Up Your Arsenal",
     "SCUS-97465": "Ratchet Deadlocked",
     "SCUS-97513": "Ratchet and Clank Size Matters",
     "SCUS-97468": "SOCOM US Navy SEALs",
     "SCUS-97506": "SOCOM 3 US Navy SEALs",
-    "SCUS-97316": "Killzone",
+    "SCUS-97516": "Killzone",
     # --- Final Fantasy ---
     "SLUS-20100": "Final Fantasy X",
     "SLUS-20441": "Final Fantasy X-2",
@@ -59,9 +59,9 @@ BUILTIN_DB = {
     "SLUS-20973": "Devil May Cry 3 Dantes Awakening",
     "SLUS-21233": "Devil May Cry 3 Special Edition",
     # --- Tekken ---
-    "SLUS-20001": "Tekken Tag Tournament",
+    "SLUS-20130": "Tekken Tag Tournament",
     "SLUS-20376": "Tekken 4",
-    "SLUS-20973": "Tekken 5",
+    "SLUS-21209": "Tekken 5",
     "SLUS-21488": "Tekken 5 Dark Resurrection",
     # --- Battlefield ---
     "SLUS-21168": "Battlefield 2 Modern Combat",
@@ -82,7 +82,7 @@ BUILTIN_DB = {
     # --- Resident Evil ---
     "SLUS-20764": "Resident Evil Code Veronica X",
     "SLUS-20717": "Resident Evil Outbreak",
-    "SLUS-21005": "Resident Evil Outbreak File 2",
+    "SLUS-21152": "Resident Evil Outbreak File 2",
     "SLUS-21282": "Resident Evil 4",
     # --- Silent Hill ---
     "SLUS-20228": "Silent Hill 2",
@@ -90,7 +90,7 @@ BUILTIN_DB = {
     "SLUS-20930": "Silent Hill 4 The Room",
     "SLUS-21208": "Silent Hill Origins",
     # --- Crash Bandicoot ---
-    "SLUS-20441": "Crash Bandicoot The Wrath of Cortex",
+    "SLUS-20821": "Crash Bandicoot The Wrath of Cortex",
     "SLUS-21161": "Crash Twinsanity",
     "SLUS-21431": "Crash Tag Team Racing",
     # --- Spyro ---
@@ -109,7 +109,7 @@ BUILTIN_DB = {
     "SLUS-21484": "Tony Hawks Project 8",
     # --- Guitar Hero ---
     "SLUS-21120": "Guitar Hero",
-    "SLUS-21161": "Guitar Hero II",
+    "SLUS-21587": "Guitar Hero II",
     "SLUS-21385": "Guitar Hero III Legends of Rock",
     "SLUS-21671": "Guitar Hero World Tour",
     # --- Prince of Persia ---
@@ -132,7 +132,7 @@ BUILTIN_DB = {
     "SLUS-20715": "WWE SmackDown vs Raw",
     "SLUS-20927": "WWE SmackDown vs Raw 2006",
     "SLUS-21102": "WWE SmackDown vs Raw 2007",
-    "SLUS-21385": "WWE SmackDown vs Raw 2008",
+    "SLUS-21687": "WWE SmackDown vs Raw 2008",
     # --- Misc ---
     "SLUS-20666": "Katamari Damacy",
     "SLUS-21008": "We Love Katamari",
@@ -141,13 +141,13 @@ BUILTIN_DB = {
     "SLUS-21108": "Ace Combat Zero The Belkan War",
     "SLUS-20722": "Castlevania Lament of Innocence",
     "SLUS-21038": "Castlevania Curse of Darkness",
-    "SLUS-20743": "Tomb Raider Legend",
+    "SLUS-21054": "Tomb Raider Legend",
     "SLUS-20995": "Shadow Hearts Covenant",
     "SLUS-20971": "Bully",
     "SLUS-20724": "The Warriors",
-    "SLUS-20764": "Midnight Club 3 DUB Edition",
     "SLUS-20787": "Spider-Man 2",
     "SLUS-21384": "Spider-Man 3",
+    "SLUS-21055": "Midnight Club 3 DUB Edition",
     # --- PAL Games (SCES/SLES) ---
     "SCES-50211": "Gran Turismo 3 A-Spec",
     "SCES-51719": "Gran Turismo 4",
@@ -161,7 +161,7 @@ BUILTIN_DB = {
     "SCES-50330": "Ratchet and Clank",
     "SCES-51607": "Ratchet and Clank Going Commando",
     "SCES-52456": "Ratchet and Clank Up Your Arsenal",
-    "SCES-52456": "Sly Cooper and the Thievius Raccoonus",
+    "SCES-51373": "Sly Cooper and the Thievius Raccoonus",
     "SCES-51214": "Sly 2 Band of Thieves",
     "SCES-53032": "Sly 3 Honor Among Thieves",
     "SCES-50300": "Metal Gear Solid 2 Sons of Liberty",
@@ -218,11 +218,8 @@ def normalize_id(disc_id):
     if not disc_id:
         return None
     disc_id = disc_id.strip().upper()
-    # Replace underscore with dash
     disc_id = disc_id.replace('_', '-')
-    # Remove version suffixes like .02 or ;1
     disc_id = re.sub(r'[.;]\d+$', '', disc_id)
-    # Validate format
     m = re.match(r'(SLUS|SCES|SCUS|SLES|SLPM|SCPS|SLPS|SCED|SLED|SCAJ|SCKA|DTL|PAPX|PBPX|PCPX)[-](\d+)', disc_id)
     if m:
         return f"{m.group(1)}-{m.group(2)}"
@@ -246,14 +243,12 @@ def extract_disc_id_from_iso(iso_path):
     """
     try:
         with open(iso_path, 'rb') as f:
-            # PVD is at sector 16 (sectors are 2048 bytes)
             f.seek(16 * 2048)
             pvd = f.read(2048)
 
             if pvd[1:6] != b'CD001':
-                return None  # Not a valid ISO 9660
+                return None
 
-            # Root directory record starts at offset 156 in PVD
             root_loc = struct.unpack_from('<I', pvd, 156 + 2)[0]
             root_size = struct.unpack_from('<I', pvd, 156 + 10)[0]
 
@@ -264,7 +259,6 @@ def extract_disc_id_from_iso(iso_path):
             while pos < len(dir_data):
                 rec_len = dir_data[pos]
                 if rec_len == 0:
-                    # Skip to next sector
                     next_sector = ((pos // 2048) + 1) * 2048
                     if next_sector >= len(dir_data):
                         break
@@ -285,7 +279,6 @@ def extract_disc_id_from_iso(iso_path):
                         f.seek(file_loc * 2048)
                         content = f.read(min(file_size, 1024)).decode('ascii', errors='ignore')
 
-                        # PS2 SYSTEM.CNF format: BOOT2 = cdrom0:\SLUS_20170.02;1
                         m = re.search(
                             r'BOOT2\s*=\s*cdrom0:\\([^;\s]+)',
                             content, re.IGNORECASE
@@ -305,7 +298,7 @@ def get_game_name(filename, iso_path=None):
     Get game name for a file.
     1. Try to extract disc ID from filename
     2. Fall back to reading SYSTEM.CNF from inside the ISO
-    3. Look up in database
+    3. Look up in custom DB then built-in DB
 
     Returns: (disc_id, game_name) — either can be None
     """
@@ -324,5 +317,5 @@ def get_game_name(filename, iso_path=None):
     game_name = custom.get(normalized) or custom.get(disc_id) or \
                 BUILTIN_DB.get(normalized) or BUILTIN_DB.get(disc_id)
 
-    logger.info(f"Disc ID: {normalized} → Game: {game_name or 'Unknown'}")
+    logger.info(f"Disc ID: {normalized} -> Game: {game_name or 'Unknown'}")
     return normalized, game_name

@@ -559,11 +559,22 @@ class ConversionWorker:
 
                         base    = self._out_base(src, file_path, game_name)
                         out_chd = os.path.join(dest_folder, base + ".chd")
+
+                        # Warn if the disc's game name doesn't match the archive filename
+                        # (indicates a mislabeled or bad dump)
+                        if game_name:
+                            archive_norm = _normalize_name(os.path.basename(file_path))
+                            game_norm    = _normalize_name(game_name)
+                            if game_norm not in archive_norm and archive_norm not in game_norm:
+                                log(f"⚠️  Disc ID mismatch: archive is '{os.path.splitext(os.path.basename(file_path))[0]}' "
+                                    f"but disc inside identifies as '{game_name}' ({disc_id}). "
+                                    f"This may be a mislabeled or bad dump.", "warn")
+
                         log(f"[{i+1}/{total}] {os.path.basename(src)} → {base}.chd ({chd_type.upper()})")
 
                         conflict_result = self._handle_conflict(job_id, out_chd, log)
                         if conflict_result == "skip":
-                            log(f"Skipping existing: {os.path.basename(out_chd)}", "warn")
+                            log(f"⏭ Skipping: '{base}.chd' already exists in destination", "warn")
                             continue
 
                         base_p  = 25 + int(65 * i / total)
