@@ -534,6 +534,17 @@ class ConversionWorker:
                     total = len(convertible)
                     success_count = 0
 
+                    # For archive→CHD: use extracted ISO size not the archive size,
+                    # so the compression ratio compares apples to apples.
+                    # Exception: if we're rezipping to 7z, keep archive size (7z→7z is fair).
+                    if not do_rezip:
+                        try:
+                            iso_bytes = sum(os.path.getsize(f) for f in convertible if os.path.exists(f))
+                            if iso_bytes > 0:
+                                self.update_job(job_id, input_bytes=iso_bytes)
+                        except Exception:
+                            pass
+
                     for i, src in enumerate(convertible):
                         # ── RUNNING ───────────────────────────────
                         self.update_job(job_id, status="running")

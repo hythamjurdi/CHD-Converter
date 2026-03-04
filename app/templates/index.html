@@ -381,7 +381,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
             <h3>📦 Archive Handling</h3><p class="section-desc">Settings for .7z, .zip, .rar archives</p>
             <div class="toggle-group"><div class="toggle-info"><div class="toggle-label">Extract from archives</div><div class="toggle-desc">Automatically extract before converting</div></div><label class="toggle"><input type="checkbox" id="settExtract"><span class="toggle-slider"></span></label></div>
             <div class="toggle-group"><div class="toggle-info"><div class="toggle-label">Delete archive after conversion</div></div><label class="toggle"><input type="checkbox" id="settDeleteArchive"><span class="toggle-slider"></span></label></div>
-            <div class="toggle-group"><div class="toggle-info"><div class="toggle-label">Check for existing CHD before extracting</div><div class="toggle-desc">Peeks inside archive (~0.2s, no decompression) to detect duplicates before extraction. Useful if you have an existing CHD library.</div></div><label class="toggle"><input type="checkbox" id="settPreCheck"><span class="toggle-slider"></span></label></div>
+            <div class="toggle-group"><div class="toggle-info"><div class="toggle-label">Check for existing CHD before extracting</div><div class="toggle-desc">Compares archive filename against destination CHDs before extraction. Duplicate detection runs instantly on filename alone.</div></div><label class="toggle"><input type="checkbox" id="settPreCheck"><span class="toggle-slider"></span></label></div>
             <div class="toggle-group"><div class="toggle-info"><div class="toggle-label">Rename output to archive name</div></div><label class="toggle"><input type="checkbox" id="settRenameArchive"><span class="toggle-slider"></span></label></div>
           </div>
           <div class="settings-section">
@@ -1271,7 +1271,10 @@ async function loadHistory() {
     const ts = e.timestamp ? new Date(e.timestamp).toLocaleString() : '';
     const out = e.rezip_path || e.output_path || '';
     const elapsed = e.elapsed_sec ? formatDuration(e.elapsed_sec) : '';
-    const ratio = (e.input_bytes && e.output_bytes) ? (100 - Math.round(e.output_bytes/e.input_bytes*100)) + '% smaller' : '';
+    // ratio: input_bytes is ISO size for archive→CHD, archive size for archive→7z (rezip)
+    const ratio = (e.input_bytes && e.output_bytes && e.input_bytes > 0)
+      ? (100 - Math.round(e.output_bytes / e.input_bytes * 100)) + '% smaller'
+      : '';
     const hasLog = e.log && e.log.length > 0;
     return `<div class="history-item" style="cursor:${hasLog?'pointer':'default'}" onclick="${hasLog ? `showHistoryLog('${e.id}')` : ''}">
       <div style="flex:1;min-width:0">
@@ -1689,7 +1692,8 @@ function showBatchReport() {
     { label: '⏭ Skipped', value: batchSkipped },
     { label: '⏱ Total time', value: formatDuration(elapsed) },
     { label: '⚡ Avg per game', value: avgSec ? formatDuration(avgSec) : '—' },
-    { label: '📦 Source size', value: batchTotalInput ? fmtBytes(batchTotalInput) : '—' },
+    { label: '📂 ISO size', value: batchTotalInput ? fmtBytes(batchTotalInput) : '—',
+      title: 'Uncompressed source size (ISO/BIN). For archives this is the extracted size, not the archive.' },
     { label: '💿 CHD size', value: batchTotalOutput ? fmtBytes(batchTotalOutput) : '—' },
     { label: '🗜 Compression', value: ratio !== null ? ratio + '% smaller' : '—' },
   ];
