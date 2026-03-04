@@ -18,7 +18,7 @@ Built with the assistance of [Claude AI](https://claude.ai) by Anthropic.
 - Conflict resolution — ask / skip / overwrite with apply-to-all option
 - Conversion history that survives container restarts
 - Dark / light mode
-  
+
 - **RA Hasing is still experimental and needs tweaking**
 - RetroAchievements hashing support (requires RA API key)
 - Optional retroactive scan to hash previously converted games
