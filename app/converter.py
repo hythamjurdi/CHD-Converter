@@ -607,8 +607,14 @@ class ConversionWorker:
                             chd2    = os.path.join(dest_folder, base2 + ".chd")
                             if os.path.exists(chd2):
                                 self._try_ra_hash(job_id, chd2, log)
-                    finish("completed", progress=100)
-                    log(f"Completed {success_count}/{total} conversions", "success")
+
+                    # If nothing was actually converted, mark as skipped not completed
+                    if success_count == 0:
+                        finish("skipped", progress=100)
+                        log(f"Skipped — all {total} file(s) already exist in destination", "warn")
+                    else:
+                        finish("completed", progress=100)
+                        log(f"Completed {success_count}/{total} conversions", "success")
 
                 finally:
                     shutil.rmtree(tmp_dir, ignore_errors=True)

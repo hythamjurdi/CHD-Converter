@@ -128,7 +128,8 @@ def update_job(job_id, **kwargs):
 
 
 def log_to_job(job_id, message, level="info"):
-    entry = {"time": datetime.now().strftime("%H:%M:%S"), "msg": message, "level": level}
+    # Store as ISO UTC — frontend converts to local browser time
+    entry = {"time": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"), "msg": message, "level": level}
     with jobs_lock:
         if job_id in jobs: jobs[job_id]["log"].append(entry)
     broadcast_event("job_log", {"job_id": job_id, "entry": entry})
@@ -248,6 +249,54 @@ def cancel_job(job_id):
             data = dict(jobs[job_id])
     if data: broadcast_event("job_update", data)
     return jsonify({"success": True})
+
+@app.route("/api/jobs/check_dupes", methods=["POST"])
+def check_dupes():
+    """
+    Check a list of file paths against the destination folder for duplicates.
+    Accepts: {paths: [...]}  OR falls back to all queued jobs if omitted.
+    Returns: {dupes: [{file_path, filename, match_dest}], total, checked}
+    """
+    from converter import _normalize_name, build_dest_chd_set
+    dest  = effective_dest()
+    body  = request.json or {}
+    paths = body.get("paths")
+
+    if paths is None:
+        # Legacy: check queued jobs
+        with jobs_lock:
+            paths = [j["file_path"] for j in jobs.values() if j["status"] == "queued"]
+
+    if not paths:
+        return jsonify({"dupes": [], "total": 0, "checked": 0})
+
+    dest_names = build_dest_chd_set(dest)
+
+    # Build a reverse lookup: norm_name -> first matching filename in dest
+    dest_map = {}
+    try:
+        for root, _, files in os.walk(dest):
+            for f in files:
+                if f.lower().endswith(('.chd', '.7z')):
+                    n = _normalize_name(f)
+                    if n not in dest_map:
+                        dest_map[n] = f
+    except Exception:
+        pass
+
+    dupes = []
+    for fp in paths:
+        fname = os.path.basename(fp)
+        norm  = _normalize_name(fname)
+        if norm in dest_names:
+            dupes.append({
+                "file_path":  fp,
+                "filename":   fname,
+                "match_dest": dest_map.get(norm, norm),
+            })
+
+    return jsonify({"dupes": dupes, "total": len(paths), "checked": len(paths)})
+
 
 @app.route("/api/jobs/<job_id>/retry", methods=["POST"])
 def retry_job(job_id):

@@ -950,11 +950,21 @@ function renderLog(log) {
   c.scrollTop = c.scrollHeight;
 }
 
+function fmtLogTime(t) {
+  // t is either ISO8601 UTC ("2024-01-01T13:45:00Z") or legacy "HH:MM:SS"
+  if (t && t.includes('T')) {
+    try {
+      return new Date(t).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+    } catch(e) {}
+  }
+  return t || '';
+}
+
 function appendLogEntry(entry, scroll=true) {
   const c = document.getElementById('logContainer');
   if (c.children[0]?.textContent?.includes('Waiting')) c.innerHTML = '';
   const d = document.createElement('div'); d.className = 'log-entry';
-  d.innerHTML = `<span class="log-time">${entry.time}</span><span class="log-msg ${entry.level||''}">${esc(entry.msg)}</span>`;
+  d.innerHTML = `<span class="log-time">${fmtLogTime(entry.time)}</span><span class="log-msg ${entry.level||''}">${esc(entry.msg)}</span>`;
   c.appendChild(d);
   if (scroll) c.scrollTop = c.scrollHeight;
 }
@@ -1050,6 +1060,142 @@ function updateScanFooter() {
   document.getElementById('startConvBtn').disabled = checked === 0;
 }
 
+async // ── Dupe scanner ──────────────────────────────────────────────────
+let _dupePendingPaths = [];   // paths the user wants to queue (set before dupe check)
+let _dupeResults     = [];   // dupes returned from API
+let _dupeSkipPaths   = new Set();  // paths user decided to skip
+
+function closeDupeModal() {
+  document.getElementById('dupeScanModal').style.display = 'none';
+  _dupePendingPaths = [];
+  _dupeResults = [];
+  _dupeSkipPaths = new Set();
+}
+
+async function runDupeScan(pathsToCheck, onComplete) {
+  // pathsToCheck: array of file paths about to be queued
+  // onComplete(pathsToQueue): called with the final approved list
+  if (!settings.pre_check_before_extract || !pathsToCheck.length) {
+    onComplete(pathsToCheck);
+    return;
+  }
+
+  _dupePendingPaths = pathsToCheck;
+
+  const modal = document.getElementById('dupeScanModal');
+  modal.style.display = 'flex';
+  document.getElementById('dupeEmptyMsg').style.display = 'block';
+  document.getElementById('dupeEmptyMsg').textContent = `Checking ${pathsToCheck.length} file${pathsToCheck.length!==1?'s':''} against destination…`;
+  document.getElementById('dupeActions').style.display = 'none';
+  document.getElementById('dupeRemoveProgress').style.display = 'none';
+  document.getElementById('dupeScanBarFill').style.width = '0%';
+  document.getElementById('dupeList').querySelectorAll('.dupe-row').forEach(e => e.remove());
+  document.getElementById('dupeCount').textContent = 'Scanning…';
+
+  let data;
+  try {
+    const r = await fetch('/api/jobs/check_dupes', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({paths: pathsToCheck})
+    });
+    data = await r.json();
+  } catch(e) {
+    closeDupeModal();
+    onComplete(pathsToCheck);  // fall through on error
+    return;
+  }
+
+  _dupeResults = data.dupes || [];
+  _dupeSkipPaths = new Set(_dupeResults.map(d => d.file_path));
+
+  document.getElementById('dupeScanBarFill').style.width = '100%';
+  document.getElementById('dupeCount').textContent =
+    `${_dupeResults.length} duplicate${_dupeResults.length !== 1 ? 's' : ''} found of ${data.total} files`;
+
+  if (_dupeResults.length === 0) {
+    document.getElementById('dupeEmptyMsg').textContent = '✅ No duplicates found — all files are unique.';
+    document.getElementById('dupeActions').style.display = 'flex';
+    document.getElementById('dupeSkipAll').style.display = 'none';
+    document.getElementById('dupeKeepAll').style.display = 'none';
+    document.getElementById('dupeSummary').textContent = 'All files are new. Proceeding to queue…';
+    setTimeout(() => {
+      if (document.getElementById('dupeScanModal').style.display !== 'none') {
+        closeDupeModal();
+        onComplete(pathsToCheck);
+      }
+    }, 1500);
+    return;
+  }
+
+  // Render dupe rows
+  document.getElementById('dupeEmptyMsg').style.display = 'none';
+  const list = document.getElementById('dupeList');
+  _dupeResults.forEach(d => {
+    const row = document.createElement('div');
+    row.className = 'dupe-row';
+    row.dataset.filePath = d.file_path;
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;font-size:12px;background:var(--bg-tertiary);';
+    row.innerHTML = `
+      <span style="color:var(--warning);font-size:14px">⚠</span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(d.file_path)}">${esc(d.filename)}</span>
+      <span style="color:var(--text-muted);flex-shrink:0;font-size:11px">↔ ${esc(d.match_dest)}</span>
+    `;
+    list.appendChild(row);
+  });
+
+  const clean = pathsToCheck.length - _dupeResults.length;
+  document.getElementById('dupeActions').style.display = 'flex';
+  document.getElementById('dupeSkipAll').style.display = '';
+  document.getElementById('dupeKeepAll').style.display = '';
+  document.getElementById('dupeSummary').textContent =
+    `${_dupeResults.length} dupe${_dupeResults.length!==1?'s':''} will be skipped · ${clean} new file${clean!==1?'s':''} will queue`;
+
+  // Store onComplete for use by buttons
+  _dupeOnComplete = onComplete;
+}
+
+let _dupeOnComplete = null;
+
+async function dupeDecide(action) {
+  const onComplete = _dupeOnComplete;
+
+  if (action === 'keep') {
+    // Queue everything including dupes
+    closeDupeModal();
+    if (onComplete) onComplete(_dupePendingPaths);
+    return;
+  }
+
+  // action === 'skip': animate removal display, then queue only clean files
+  const toRemove = _dupeResults;
+  const cleanPaths = _dupePendingPaths.filter(p => !_dupeSkipPaths.has(p));
+
+  document.getElementById('dupeActions').style.display = 'none';
+  document.getElementById('dupeRemoveProgress').style.display = 'flex';
+  document.getElementById('dupeRemoveBarFill').style.width = '0%';
+
+  const total = toRemove.length;
+  for (let i = 0; i < total; i++) {
+    const d = toRemove[i];
+    document.getElementById('dupeRemoveLive').textContent =
+      `[${i+1}/${total}] Skipping: ${d.filename}`;
+
+    const row = document.querySelector(`.dupe-row[data-file-path="${CSS.escape(d.file_path)}"]`);
+    if (row) { row.style.opacity = '0.35'; row.style.textDecoration = 'line-through'; }
+
+    document.getElementById('dupeRemoveBarFill').style.width = ((i+1) / total * 100) + '%';
+    await new Promise(res => setTimeout(res, 35));
+  }
+
+  document.getElementById('dupeRemoveLive').textContent =
+    `✅ Skipped ${total} duplicate${total!==1?'s':''}. Queuing ${cleanPaths.length} new file${cleanPaths.length!==1?'s':''}…`;
+
+  await new Promise(res => setTimeout(res, 800));
+  closeDupeModal();
+  if (onComplete) onComplete(cleanPaths);
+}
+
 async function startSelectedConversions() {
   const paths = [];
   document.querySelectorAll('.scan-cb:checked:not([disabled])').forEach(cb => {
@@ -1057,24 +1203,34 @@ async function startSelectedConversions() {
     if (scanFiles[idx]) paths.push(scanFiles[idx].path);
   });
   if (!paths.length) return;
-  const btn = document.getElementById('startConvBtn');
-  btn.disabled = true; btn.textContent = 'Starting…';
-  try {
-    const r = await fetch('/api/jobs/queue_files', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({paths})});
-    const d = await r.json();
-    closeScanModal();
-    switchMainTab('queue');
-    // Switch to queued filter so user sees their jobs
-    currentFilter = 'queued';
-    document.querySelectorAll('.queue-tab').forEach(t => t.classList.toggle('active', t.dataset.filter === 'queued'));
-    renderQueue();
-    const sb = document.getElementById('scanBtn');
-    const orig = sb.innerHTML;
-    sb.textContent = `✅ ${d.added} file${d.added!==1?'s':''} queued`;
-    setTimeout(() => sb.innerHTML = orig, 3000);
-  } finally {
-    btn.disabled = false; btn.innerHTML = '▶ Start Conversion';
-  }
+
+  // Close scan modal first, then run dupe check (if enabled), then queue
+  closeScanModal();
+  switchMainTab('queue');
+  currentFilter = 'queued';
+  document.querySelectorAll('.queue-tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.filter === 'queued'));
+  renderQueue();
+
+  // runDupeScan calls onComplete with the final approved path list
+  runDupeScan(paths, async (approvedPaths) => {
+    if (!approvedPaths.length) return;
+    const btn = document.getElementById('startConvBtn');
+    try {
+      const r = await fetch('/api/jobs/queue_files', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({paths: approvedPaths})
+      });
+      const d = await r.json();
+      const sb = document.getElementById('scanBtn');
+      const orig = sb.innerHTML;
+      const skipped = paths.length - approvedPaths.length;
+      const skippedNote = skipped > 0 ? ` (${skipped} dupe${skipped!==1?'s':''} skipped)` : '';
+      sb.textContent = `✅ ${d.added} file${d.added!==1?'s':''} queued${skippedNote}`;
+      setTimeout(() => sb.innerHTML = orig, 4000);
+    } catch(e) {}
+  });
 }
 
 function closeScanModal() { document.getElementById('scanModal').style.display = 'none'; }
@@ -1924,6 +2080,39 @@ function stopRAPoll() {
   raPollInterval = null;
 }
 </script>
+
+<!-- Dupe Scanner Modal -->
+<div id="dupeScanModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1100;align-items:center;justify-content:center">
+  <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:28px 32px;width:620px;max-width:95vw;max-height:85vh;display:flex;flex-direction:column;gap:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <h3 style="margin:0;font-size:16px">🔍 Duplicate Check</h3>
+      <span id="dupeCount" style="font-size:13px;color:var(--text-muted)">Scanning…</span>
+    </div>
+    <!-- Progress bar (visible while scanning) -->
+    <div id="dupeScanBar" style="height:4px;background:var(--border);border-radius:2px;overflow:hidden">
+      <div id="dupeScanBarFill" style="height:100%;background:var(--accent);width:0%;transition:width 0.3s"></div>
+    </div>
+    <!-- Dupe list -->
+    <div id="dupeList" style="flex:1;overflow-y:auto;max-height:340px;display:flex;flex-direction:column;gap:4px;min-height:60px">
+      <div id="dupeEmptyMsg" style="color:var(--text-muted);font-size:13px;padding:12px 0">Checking queued jobs…</div>
+    </div>
+    <!-- Actions -->
+    <div id="dupeActions" style="display:none;gap:10px;flex-wrap:wrap;align-items:center;border-top:1px solid var(--border);padding-top:14px">
+      <span id="dupeSummary" style="font-size:13px;color:var(--text-muted);flex:1"></span>
+      <button class="btn btn-outline btn-sm" onclick="closeDupeModal()">Cancel</button>
+      <button class="btn btn-outline btn-sm" id="dupeKeepAll" onclick="dupeDecide('keep')">Keep All (Overwrite)</button>
+      <button class="btn btn-primary btn-sm" id="dupeSkipAll" onclick="dupeDecide('skip')">⏭ Skip All Dupes</button>
+    </div>
+    <!-- Removal progress (visible while removing) -->
+    <div id="dupeRemoveProgress" style="display:none;flex-direction:column;gap:8px;border-top:1px solid var(--border);padding-top:14px">
+      <div style="font-size:13px;color:var(--text-muted)">Removing duplicates from queue…</div>
+      <div style="height:4px;background:var(--border);border-radius:2px;overflow:hidden">
+        <div id="dupeRemoveBarFill" style="height:100%;background:var(--success);width:0%;transition:width 0.2s"></div>
+      </div>
+      <div id="dupeRemoveLive" style="font-size:12px;color:var(--text-muted);font-family:monospace"></div>
+    </div>
+  </div>
+</div>
 
 <!-- Batch Complete Report Modal -->
 <div id="batchReportModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000" onclick="if(event.target===this)this.style.display='none'">
