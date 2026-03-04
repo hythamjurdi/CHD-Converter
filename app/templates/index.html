@@ -376,30 +376,33 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
       <div id="viewStats" style="display:none;flex:1;overflow:hidden;flex-direction:column">
 
   <!-- Summary cards -->
-  <div id="statsSummary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;padding:20px 24px 12px;border-bottom:1px solid var(--border);flex-shrink:0">
-    <div class="stat-card" id="sc-converted"><div class="sc-val">—</div><div class="sc-lbl">Converted</div></div>
-    <div class="stat-card" id="sc-failed"><div class="sc-val">—</div><div class="sc-lbl">Failed</div></div>
-    <div class="stat-card" id="sc-skipped"><div class="sc-val">—</div><div class="sc-lbl">Skipped</div></div>
-    <div class="stat-card" id="sc-iso-size"><div class="sc-val">—</div><div class="sc-lbl">Total ISO size</div></div>
-    <div class="stat-card" id="sc-chd-size"><div class="sc-val">—</div><div class="sc-lbl">Total CHD size</div></div>
-    <div class="stat-card" id="sc-saved"><div class="sc-val">—</div><div class="sc-lbl">Space saved</div></div>
-    <div class="stat-card" id="sc-ratio"><div class="sc-val">—</div><div class="sc-lbl">Avg compression</div></div>
-    <div class="stat-card" id="sc-time"><div class="sc-val">—</div><div class="sc-lbl">Total time</div></div>
-    <div class="stat-card" id="sc-speed"><div class="sc-val">—</div><div class="sc-lbl">Avg speed</div></div>
+  <div id="statsSummary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;padding:18px 24px 14px;border-bottom:1px solid var(--border);flex-shrink:0">
+    <div class="stat-card" id="sc-jobs">      <div class="sc-val">—</div><div class="sc-lbl" id="sc-jobs-lbl">Total jobs</div></div>
+    <div class="stat-card" id="sc-iso-size">  <div class="sc-val">—</div><div class="sc-lbl">ISO size</div></div>
+    <div class="stat-card" id="sc-chd-size">  <div class="sc-val">—</div><div class="sc-lbl">CHD size</div></div>
+    <div class="stat-card" id="sc-saved">     <div class="sc-val">—</div><div class="sc-lbl">Space saved</div></div>
+    <div class="stat-card" id="sc-ratio">     <div class="sc-val">—</div><div class="sc-lbl">Avg compression</div></div>
+    <div class="stat-card" id="sc-time">      <div class="sc-val">—</div><div class="sc-lbl">Total time</div></div>
+    <div class="stat-card" id="sc-speed">     <div class="sc-val">—</div><div class="sc-lbl">Avg speed</div></div>
   </div>
 
   <!-- Table toolbar -->
-  <div style="display:flex;align-items:center;gap:10px;padding:10px 24px;flex-shrink:0;border-bottom:1px solid var(--border)">
-    <input id="statsSearch" type="text" placeholder="Search games…" style="flex:1;max-width:280px;height:30px;padding:0 10px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px">
-    <select id="statsFilter" style="height:30px;padding:0 8px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px">
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 24px;flex-shrink:0;border-bottom:1px solid var(--border)">
+    <div style="position:relative;flex:1">
+      <svg style="position:absolute;left:10px;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--text-muted)" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input id="statsSearch" type="text" placeholder="Search by game name, filename, or disc ID…"
+        style="width:100%;height:36px;padding:0 36px 0 34px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-size:13px;box-sizing:border-box">
+      <button id="statsSearchClear" onclick="document.getElementById('statsSearch').value='';_statsSearch='';renderStats()"
+        style="display:none;position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;line-height:1;padding:0">✕</button>
+    </div>
+    <select id="statsFilter" style="height:36px;padding:0 10px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-size:13px;flex-shrink:0">
       <option value="all">All jobs</option>
-      <option value="completed">Completed</option>
-      <option value="failed">Failed</option>
-      <option value="skipped">Skipped</option>
+      <option value="completed">✅ Completed</option>
+      <option value="failed">❌ Failed</option>
+      <option value="skipped">⏭ Skipped</option>
     </select>
-    <span id="statsRowCount" style="font-size:11px;color:var(--text-muted);margin-left:4px"></span>
-    <div style="flex:1"></div>
-    <button class="btn btn-outline btn-sm" onclick="clearStats()" style="color:var(--error);border-color:var(--error)">🗑 Clear Stats</button>
+    <span id="statsRowCount" style="font-size:12px;color:var(--text-muted);flex-shrink:0;min-width:50px;text-align:right"></span>
+    <button class="btn btn-outline btn-sm" onclick="clearStats()" style="flex-shrink:0;color:var(--error);border-color:var(--error)">🗑 Clear</button>
   </div>
 
   <!-- Per-game table -->
@@ -407,16 +410,16 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
     <table id="statsTable" style="width:100%;border-collapse:collapse;font-size:12px;margin-top:8px">
       <thead>
         <tr id="statsTableHead" style="color:var(--text-muted);text-align:left;position:sticky;top:0;background:var(--bg-primary);z-index:1">
-          <th class="st-col" data-col="filename" style="padding:8px 6px;cursor:pointer;white-space:nowrap">Game ↕</th>
-          <th class="st-col" data-col="status"   style="padding:8px 6px;cursor:pointer;white-space:nowrap">Status ↕</th>
-          <th class="st-col" data-col="input_bytes" style="padding:8px 6px;cursor:pointer;white-space:nowrap;text-align:right">ISO size ↕</th>
-          <th class="st-col" data-col="output_bytes" style="padding:8px 6px;cursor:pointer;white-space:nowrap;text-align:right">CHD size ↕</th>
-          <th class="st-col" data-col="saved_bytes" style="padding:8px 6px;cursor:pointer;white-space:nowrap;text-align:right">Saved ↕</th>
-          <th class="st-col" data-col="ratio_pct" style="padding:8px 6px;cursor:pointer;white-space:nowrap;text-align:right">Ratio ↕</th>
-          <th class="st-col" data-col="speed_mbps" style="padding:8px 6px;cursor:pointer;white-space:nowrap;text-align:right">Speed ↕</th>
-          <th class="st-col" data-col="elapsed_sec" style="padding:8px 6px;cursor:pointer;white-space:nowrap;text-align:right">Time ↕</th>
-          <th class="st-col" data-col="chd_type" style="padding:8px 6px;cursor:pointer;white-space:nowrap">Type ↕</th>
-          <th class="st-col" data-col="timestamp" style="padding:8px 6px;cursor:pointer;white-space:nowrap">Date ↕</th>
+          <th class="st-col" data-col="filename"      style="padding:8px 6px;cursor:pointer;white-space:nowrap">Game ↕</th>
+          <th class="st-col" data-col="status"        style="padding:8px 6px;cursor:pointer;white-space:nowrap">Status ↕</th>
+          <th class="st-col" data-col="input_bytes"   style="padding:8px 6px;cursor:pointer;white-space:nowrap;text-align:right">ISO size ↕</th>
+          <th class="st-col" data-col="output_bytes"  style="padding:8px 6px;cursor:pointer;white-space:nowrap;text-align:right">CHD size ↕</th>
+          <th class="st-col" data-col="saved_bytes"   style="padding:8px 6px;cursor:pointer;white-space:nowrap;text-align:right">Saved ↕</th>
+          <th class="st-col" data-col="ratio_pct"     style="padding:8px 6px;cursor:pointer;white-space:nowrap;text-align:right">Ratio ↕</th>
+          <th class="st-col" data-col="speed_mbps"    style="padding:8px 6px;cursor:pointer;white-space:nowrap;text-align:right">Speed ↕</th>
+          <th class="st-col" data-col="elapsed_sec"   style="padding:8px 6px;cursor:pointer;white-space:nowrap;text-align:right">Time ↕</th>
+          <th class="st-col" data-col="chd_type"      style="padding:8px 6px;cursor:pointer;white-space:nowrap">Type ↕</th>
+          <th class="st-col" data-col="timestamp"     style="padding:8px 6px;cursor:pointer;white-space:nowrap">Date ↕</th>
         </tr>
       </thead>
       <tbody id="statsTableBody"></tbody>
@@ -427,7 +430,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
   </div>
 </div>
 
-<div id="viewSettings" style="display:none;flex:1;overflow:hidden">
+<div id="viewSettings"<div id="viewSettings" style="display:none;flex:1;overflow:hidden">
         <div class="settings-panel">
           <div class="settings-section">
             <h3>📁 Folders</h3><p class="section-desc">Source and destination paths (Docker volume paths)</p>
@@ -2142,25 +2145,10 @@ async function loadStats() {
 
 function renderStats() {
   if (!_statsData) return;
-  const { totals, entries } = _statsData;
+  const { entries } = _statsData;
 
-  // ── Summary cards ────────────────────────────────────────────
-  function setCard(id, val) {
-    const el = document.getElementById(id);
-    if (el) el.querySelector('.sc-val').textContent = val ?? '—';
-  }
-  setCard('sc-converted', totals.completed ?? 0);
-  setCard('sc-failed',    totals.failed ?? 0);
-  setCard('sc-skipped',   totals.skipped ?? 0);
-  setCard('sc-iso-size',  totals.total_iso_bytes ? fmtBytes(totals.total_iso_bytes) : '—');
-  setCard('sc-chd-size',  totals.total_chd_bytes ? fmtBytes(totals.total_chd_bytes) : '—');
-  setCard('sc-saved',     totals.total_saved_bytes ? fmtBytes(totals.total_saved_bytes) : '—');
-  setCard('sc-ratio',     totals.overall_ratio_pct != null ? totals.overall_ratio_pct + '%' : '—');
-  setCard('sc-time',      totals.total_elapsed_sec ? formatDuration(totals.total_elapsed_sec) : '—');
-  setCard('sc-speed',     totals.avg_speed_mbps != null ? totals.avg_speed_mbps + ' MB/s' : '—');
-
-  // ── Filter + search ──────────────────────────────────────────
-  let rows = entries.filter(e => {
+  // ── Apply filter + search to get visible rows ─────────────────
+  const filtered = entries.filter(e => {
     if (_statsFilter !== 'all' && e.status !== _statsFilter) return false;
     if (_statsSearch) {
       const q = _statsSearch.toLowerCase();
@@ -2171,9 +2159,44 @@ function renderStats() {
     return true;
   });
 
+  // ── Summary cards — computed from the filtered rows ───────────
+  const completed = filtered.filter(e => e.status === 'completed');
+  const isoBytes  = completed.reduce((s,e) => s + (e.input_bytes||0),  0);
+  const chdBytes  = completed.reduce((s,e) => s + (e.output_bytes||0), 0);
+  const saved     = completed.reduce((s,e) => s + (e.saved_bytes||0),  0);
+  const totalSec  = completed.reduce((s,e) => s + (e.elapsed_sec||0),  0);
+  const withSpeed = completed.filter(e => e.speed_mbps);
+  const avgSpeed  = withSpeed.length
+    ? (withSpeed.reduce((s,e) => s + e.speed_mbps, 0) / withSpeed.length).toFixed(1)
+    : null;
+  const ratio     = isoBytes > 0 ? Math.round((1 - chdBytes/isoBytes)*100) : null;
+
+  // Card label for job count changes with filter
+  const jobsLbl = { all:'Total jobs', completed:'Completed', failed:'Failed', skipped:'Skipped' };
+  const jobsVal = _statsFilter === 'all'
+    ? filtered.length
+    : filtered.filter(e => e.status === _statsFilter).length;
+
+  document.getElementById('sc-jobs-lbl').textContent = jobsLbl[_statsFilter] || 'Jobs';
+  function setCard(id, val) {
+    const el = document.getElementById(id);
+    if (el) el.querySelector('.sc-val').textContent = val ?? '—';
+  }
+  setCard('sc-jobs',     jobsVal);
+  setCard('sc-iso-size', isoBytes  ? fmtBytes(isoBytes) : '—');
+  setCard('sc-chd-size', chdBytes  ? fmtBytes(chdBytes) : '—');
+  setCard('sc-saved',    saved     ? fmtBytes(saved)    : '—');
+  setCard('sc-ratio',    ratio != null ? ratio + '%'    : '—');
+  setCard('sc-time',     totalSec  ? formatDuration(totalSec) : '—');
+  setCard('sc-speed',    avgSpeed  ? avgSpeed + ' MB/s' : '—');
+
+  // ── Show/hide search clear button ────────────────────────────
+  const clearBtn = document.getElementById('statsSearchClear');
+  if (clearBtn) clearBtn.style.display = _statsSearch ? 'block' : 'none';
+
   // ── Sort ─────────────────────────────────────────────────────
   const col = _statsSort.col;
-  rows.sort((a, b) => {
+  const rows = [...filtered].sort((a, b) => {
     let av = a[col], bv = b[col];
     if (av == null) av = col === 'timestamp' ? '' : -Infinity;
     if (bv == null) bv = col === 'timestamp' ? '' : -Infinity;
@@ -2183,7 +2206,7 @@ function renderStats() {
   document.getElementById('statsRowCount').textContent =
     rows.length + ' row' + (rows.length !== 1 ? 's' : '');
 
-  // ── Render header sort indicators ────────────────────────────
+  // ── Column sort indicators ────────────────────────────────────
   document.querySelectorAll('.st-col').forEach(th => {
     const base = th.textContent.replace(/ [↑↓↕]$/, '');
     if (th.dataset.col === col) {
@@ -2214,24 +2237,33 @@ function renderStats() {
     const statusDot = `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${STATUS_COLOR[e.status]||'var(--text-muted)'};margin-right:5px;flex-shrink:0"></span>`;
     const name = esc(e.game_name || e.filename || '—');
     const discBadge = e.disc_id ? `<span style="font-size:10px;color:var(--text-muted);margin-left:5px">${esc(e.disc_id)}</span>` : '';
-    const isoSz  = e.input_bytes  ? fmtBytes(e.input_bytes)  : '—';
-    const chdSz  = e.output_bytes ? fmtBytes(e.output_bytes) : '—';
-    const saved  = e.saved_bytes  ? fmtBytes(e.saved_bytes)  : '—';
-    const ratio  = e.ratio_pct  != null ? e.ratio_pct + '%'    : '—';
-    const speed  = e.speed_mbps != null ? e.speed_mbps + ' MB/s' : '—';
-    const dur    = e.elapsed_sec ? formatDuration(e.elapsed_sec) : '—';
-    const type   = e.chd_type ? `<span style="font-size:10px;background:var(--bg-tertiary);padding:1px 5px;border-radius:4px">${esc(e.chd_type.toUpperCase())}</span>` : '—';
-    const ts     = e.timestamp ? new Date(e.timestamp).toLocaleDateString([], {month:'short',day:'numeric',year:'numeric'}) : '—';
-    const errTitle = e.error ? ` title="${esc(e.error)}"` : '';
-    const rowStyle = e.status === 'failed' ? 'background:color-mix(in srgb,var(--error) 5%,transparent)' : '';
+    const isoSz = e.input_bytes  ? fmtBytes(e.input_bytes)  : '—';
+    const chdSz = e.output_bytes ? fmtBytes(e.output_bytes) : '—';
+    const sv    = e.saved_bytes  ? fmtBytes(e.saved_bytes)  : '—';
+    const rt    = e.ratio_pct  != null ? e.ratio_pct + '%'      : '—';
+    const sp    = e.speed_mbps != null ? e.speed_mbps + ' MB/s' : '—';
+    const dur   = e.elapsed_sec ? formatDuration(e.elapsed_sec) : '—';
+    const type  = e.chd_type
+      ? `<span style="font-size:10px;background:var(--bg-tertiary);padding:1px 5px;border-radius:4px">${esc(e.chd_type.toUpperCase())}</span>`
+      : '—';
+    const ts    = e.timestamp
+      ? new Date(e.timestamp).toLocaleDateString([], {month:'short',day:'numeric',year:'numeric'})
+      : '—';
+    const errTitle  = e.error ? ` title="${esc(e.error)}"` : '';
+    const rowStyle  = e.status === 'failed'
+      ? 'background:color-mix(in srgb,var(--error) 5%,transparent)'
+      : '';
+    const ratioStyle = e.ratio_pct != null
+      ? 'font-weight:600;color:var(--success)'
+      : '';
     return `<tr style="border-bottom:1px solid var(--border);${rowStyle}" ${errTitle}>
       <td style="padding:7px 6px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}${discBadge}</td>
       <td style="padding:7px 6px;white-space:nowrap">${statusDot}${e.status}</td>
       <td style="padding:7px 6px;text-align:right;white-space:nowrap">${isoSz}</td>
       <td style="padding:7px 6px;text-align:right;white-space:nowrap">${chdSz}</td>
-      <td style="padding:7px 6px;text-align:right;white-space:nowrap">${saved}</td>
-      <td style="padding:7px 6px;text-align:right;white-space:nowrap;font-weight:${e.ratio_pct!=null?'600':'400'};color:${e.ratio_pct!=null?'var(--success)':'inherit'}">${ratio}</td>
-      <td style="padding:7px 6px;text-align:right;white-space:nowrap">${speed}</td>
+      <td style="padding:7px 6px;text-align:right;white-space:nowrap">${sv}</td>
+      <td style="padding:7px 6px;text-align:right;white-space:nowrap;${ratioStyle}">${rt}</td>
+      <td style="padding:7px 6px;text-align:right;white-space:nowrap">${sp}</td>
       <td style="padding:7px 6px;text-align:right;white-space:nowrap">${dur}</td>
       <td style="padding:7px 6px">${type}</td>
       <td style="padding:7px 6px;white-space:nowrap;color:var(--text-muted);font-size:11px">${ts}</td>
