@@ -620,13 +620,13 @@ def ra_stop():
     return jsonify({"ok": True})
 
 
-@app.route("/api/stats", methods=["GET"])
-def get_stats():
+@app.route("/api/statistics", methods=["GET"])
+def get_statistics():
     from stats_manager import stats_manager
     return jsonify(stats_manager.get_all())
 
-@app.route("/api/stats/clear", methods=["POST"])
-def clear_stats():
+@app.route("/api/statistics/clear", methods=["POST"])
+def clear_statistics():
     from stats_manager import stats_manager
     stats_manager.clear()
     return jsonify({"ok": True})

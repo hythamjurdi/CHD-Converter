@@ -2131,7 +2131,7 @@ let _statsSearch = '';
 
 async function loadStats() {
   try {
-    const r = await fetch('/api/stats');
+    const r = await fetch('/api/statistics');
     _statsData = await r.json();
     renderStats();
   } catch(e) {
@@ -2241,7 +2241,7 @@ function renderStats() {
 
 async function clearStats() {
   if (!confirm('Clear all statistics? This cannot be undone.')) return;
-  await fetch('/api/stats/clear', { method: 'POST' });
+  await fetch('/api/statistics/clear', { method: 'POST' });
   _statsData = { entries: [], totals: {} };
   renderStats();
 }
