@@ -166,6 +166,13 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
 .folder-item:hover{background:var(--surface2)}
 .theme-toggle{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;cursor:pointer;color:var(--text);font-size:18px;display:flex;align-items:center}
 ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}::-webkit-scrollbar-thumb:hover{background:var(--text-muted)}
+/* ── Statistics ───────────────────────────────────────────────── */
+.stat-card{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:4px}
+.sc-val{font-size:22px;font-weight:700;color:var(--text-primary);line-height:1}
+.sc-lbl{font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em}
+#statsTable tr:hover{background:var(--bg-tertiary)}
+#statsTableHead th:hover{color:var(--text-primary)}
+
 </style>
 </head>
 <body>
@@ -244,6 +251,10 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
         </div>
         <div class="tab" data-mtab="ra" id="mainTabRA">
           🏆 RA Hashes
+        </div>
+        <div class="tab" data-mtab="stats" id="mainTabStats">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+          Statistics
         </div>
         <div class="tab" data-mtab="settings" id="mainTabSettings">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
@@ -362,7 +373,61 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
           </div>
         </div>
       </div>
-      <div id="viewSettings" style="display:none;flex:1;overflow:hidden">
+      <div id="viewStats" style="display:none;flex:1;overflow:hidden;flex-direction:column">
+
+  <!-- Summary cards -->
+  <div id="statsSummary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;padding:20px 24px 12px;border-bottom:1px solid var(--border);flex-shrink:0">
+    <div class="stat-card" id="sc-converted"><div class="sc-val">—</div><div class="sc-lbl">Converted</div></div>
+    <div class="stat-card" id="sc-failed"><div class="sc-val">—</div><div class="sc-lbl">Failed</div></div>
+    <div class="stat-card" id="sc-skipped"><div class="sc-val">—</div><div class="sc-lbl">Skipped</div></div>
+    <div class="stat-card" id="sc-iso-size"><div class="sc-val">—</div><div class="sc-lbl">Total ISO size</div></div>
+    <div class="stat-card" id="sc-chd-size"><div class="sc-val">—</div><div class="sc-lbl">Total CHD size</div></div>
+    <div class="stat-card" id="sc-saved"><div class="sc-val">—</div><div class="sc-lbl">Space saved</div></div>
+    <div class="stat-card" id="sc-ratio"><div class="sc-val">—</div><div class="sc-lbl">Avg compression</div></div>
+    <div class="stat-card" id="sc-time"><div class="sc-val">—</div><div class="sc-lbl">Total time</div></div>
+    <div class="stat-card" id="sc-speed"><div class="sc-val">—</div><div class="sc-lbl">Avg speed</div></div>
+  </div>
+
+  <!-- Table toolbar -->
+  <div style="display:flex;align-items:center;gap:10px;padding:10px 24px;flex-shrink:0;border-bottom:1px solid var(--border)">
+    <input id="statsSearch" type="text" placeholder="Search games…" style="flex:1;max-width:280px;height:30px;padding:0 10px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px">
+    <select id="statsFilter" style="height:30px;padding:0 8px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px">
+      <option value="all">All jobs</option>
+      <option value="completed">Completed</option>
+      <option value="failed">Failed</option>
+      <option value="skipped">Skipped</option>
+    </select>
+    <span id="statsRowCount" style="font-size:11px;color:var(--text-muted);margin-left:4px"></span>
+    <div style="flex:1"></div>
+    <button class="btn btn-outline btn-sm" onclick="clearStats()" style="color:var(--error);border-color:var(--error)">🗑 Clear Stats</button>
+  </div>
+
+  <!-- Per-game table -->
+  <div style="flex:1;overflow-y:auto;padding:0 24px 20px">
+    <table id="statsTable" style="width:100%;border-collapse:collapse;font-size:12px;margin-top:8px">
+      <thead>
+        <tr id="statsTableHead" style="color:var(--text-muted);text-align:left;position:sticky;top:0;background:var(--bg-primary);z-index:1">
+          <th class="st-col" data-col="filename" style="padding:8px 6px;cursor:pointer;white-space:nowrap">Game ↕</th>
+          <th class="st-col" data-col="status"   style="padding:8px 6px;cursor:pointer;white-space:nowrap">Status ↕</th>
+          <th class="st-col" data-col="input_bytes" style="padding:8px 6px;cursor:pointer;white-space:nowrap;text-align:right">ISO size ↕</th>
+          <th class="st-col" data-col="output_bytes" style="padding:8px 6px;cursor:pointer;white-space:nowrap;text-align:right">CHD size ↕</th>
+          <th class="st-col" data-col="saved_bytes" style="padding:8px 6px;cursor:pointer;white-space:nowrap;text-align:right">Saved ↕</th>
+          <th class="st-col" data-col="ratio_pct" style="padding:8px 6px;cursor:pointer;white-space:nowrap;text-align:right">Ratio ↕</th>
+          <th class="st-col" data-col="speed_mbps" style="padding:8px 6px;cursor:pointer;white-space:nowrap;text-align:right">Speed ↕</th>
+          <th class="st-col" data-col="elapsed_sec" style="padding:8px 6px;cursor:pointer;white-space:nowrap;text-align:right">Time ↕</th>
+          <th class="st-col" data-col="chd_type" style="padding:8px 6px;cursor:pointer;white-space:nowrap">Type ↕</th>
+          <th class="st-col" data-col="timestamp" style="padding:8px 6px;cursor:pointer;white-space:nowrap">Date ↕</th>
+        </tr>
+      </thead>
+      <tbody id="statsTableBody"></tbody>
+    </table>
+    <div id="statsEmpty" style="display:none;color:var(--text-muted);font-size:13px;padding:40px;text-align:center">
+      No stats yet — completed conversions will appear here.
+    </div>
+  </div>
+</div>
+
+<div id="viewSettings" style="display:none;flex:1;overflow:hidden">
         <div class="settings-panel">
           <div class="settings-section">
             <h3>📁 Folders</h3><p class="section-desc">Source and destination paths (Docker volume paths)</p>
@@ -572,6 +637,7 @@ function connectSSE() {
     }
     jobs[j.id] = j;
     updateStats();
+    maybeRefreshStats(j);
 
     let el = document.querySelector(`[data-id="${j.id}"]`);
     const nowMatchesFilter = jobMatchesFilter(j, currentFilter);
@@ -626,8 +692,14 @@ function connectSSE() {
       const batchActual = batchDone + batchFailed;  // skips-only = no report
       if (activeNow === 0 && queuedNow === 0 && batchActual >= 1 && batchTotal >= 1 && batchStartTime !== null) {
         stopETA();
-        showBatchReport();
         batchReset();
+        // Nudge user to check stats tab
+        const stab = document.getElementById('mainTabStats');
+        if (stab) {
+          stab.style.outline = '2px solid var(--accent)';
+          stab.style.outlineOffset = '-2px';
+          setTimeout(() => { stab.style.outline = ''; stab.style.outlineOffset = ''; }, 4000);
+        }
       }
     }
     // Start batch timer when first active job appears
@@ -1314,8 +1386,10 @@ function switchMainTab(tab) {
   document.getElementById('viewQueue').style.display    = tab==='queue'    ? 'flex' : 'none';
   document.getElementById('viewHistory').style.display  = tab==='history'  ? 'flex' : 'none';
   document.getElementById('viewRA').style.display       = tab==='ra'       ? 'flex' : 'none';
+  document.getElementById('viewStats').style.display    = tab==='stats'    ? 'flex' : 'none';
   document.getElementById('viewSettings').style.display = tab==='settings' ? 'flex' : 'none';
   if (tab === 'history') loadHistory();
+  if (tab === 'stats')   loadStats();
 }
 document.querySelectorAll('[data-mtab]').forEach(t => t.addEventListener('click', () => switchMainTab(t.dataset.mtab)));
 
@@ -1679,32 +1753,7 @@ function batchTrackJob(j) {
   else if (j.status === 'failed')  batchFailed++;
   else if (j.status === 'skipped') batchSkipped++;
 }
-function showBatchReport() {
-  const elapsed = batchStartTime ? Math.round((Date.now() - batchStartTime) / 1000) : 0;
-  const total = batchDone + batchFailed + batchSkipped;
-  if (total === 0) return;
-  const ratio = batchTotalInput > 0 ? Math.round((1 - batchTotalOutput/batchTotalInput)*100) : null;
-  const avgSec = batchDone > 0 ? Math.round(elapsed / batchDone) : null;
-  const stats = [
-    { label: 'Total jobs', value: total },
-    { label: '✅ Completed', value: batchDone },
-    { label: '❌ Failed', value: batchFailed },
-    { label: '⏭ Skipped', value: batchSkipped },
-    { label: '⏱ Total time', value: formatDuration(elapsed) },
-    { label: '⚡ Avg per game', value: avgSec ? formatDuration(avgSec) : '—' },
-    { label: '📂 ISO size', value: batchTotalInput ? fmtBytes(batchTotalInput) : '—',
-      title: 'Uncompressed source size (ISO/BIN). For archives this is the extracted size, not the archive.' },
-    { label: '💿 CHD size', value: batchTotalOutput ? fmtBytes(batchTotalOutput) : '—' },
-    { label: '🗜 Compression', value: ratio !== null ? ratio + '% smaller' : '—' },
-  ];
-  document.getElementById('batchReportContent').innerHTML = stats.map(s =>
-    `<div style="background:var(--surface2);border-radius:8px;padding:12px 14px">
-      <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">${s.label}</div>
-      <div style="font-size:18px;font-weight:700">${s.value}</div>
-    </div>`
-  ).join('');
-  const brm = document.getElementById('batchReportModal'); brm.style.display = 'flex'; brm.style.alignItems = 'center'; brm.style.justifyContent = 'center';
-}
+// showBatchReport removed — see Statistics tab
 function fmtBytes(b) {
   if (b > 1e9) return (b/1e9).toFixed(1) + ' GB';
   if (b > 1e6) return (b/1e6).toFixed(1) + ' MB';
@@ -2074,6 +2123,157 @@ registerRAListener();
 })();
 
 
+// ── Statistics ────────────────────────────────────────────────────
+let _statsData = null;
+let _statsSort = { col: 'timestamp', dir: -1 };  // -1=desc, 1=asc
+let _statsFilter = 'all';
+let _statsSearch = '';
+
+async function loadStats() {
+  try {
+    const r = await fetch('/api/stats');
+    _statsData = await r.json();
+    renderStats();
+  } catch(e) {
+    document.getElementById('statsEmpty').style.display = 'block';
+    document.getElementById('statsEmpty').textContent = '❌ Could not load stats.';
+  }
+}
+
+function renderStats() {
+  if (!_statsData) return;
+  const { totals, entries } = _statsData;
+
+  // ── Summary cards ────────────────────────────────────────────
+  function setCard(id, val) {
+    const el = document.getElementById(id);
+    if (el) el.querySelector('.sc-val').textContent = val ?? '—';
+  }
+  setCard('sc-converted', totals.completed ?? 0);
+  setCard('sc-failed',    totals.failed ?? 0);
+  setCard('sc-skipped',   totals.skipped ?? 0);
+  setCard('sc-iso-size',  totals.total_iso_bytes ? fmtBytes(totals.total_iso_bytes) : '—');
+  setCard('sc-chd-size',  totals.total_chd_bytes ? fmtBytes(totals.total_chd_bytes) : '—');
+  setCard('sc-saved',     totals.total_saved_bytes ? fmtBytes(totals.total_saved_bytes) : '—');
+  setCard('sc-ratio',     totals.overall_ratio_pct != null ? totals.overall_ratio_pct + '%' : '—');
+  setCard('sc-time',      totals.total_elapsed_sec ? formatDuration(totals.total_elapsed_sec) : '—');
+  setCard('sc-speed',     totals.avg_speed_mbps != null ? totals.avg_speed_mbps + ' MB/s' : '—');
+
+  // ── Filter + search ──────────────────────────────────────────
+  let rows = entries.filter(e => {
+    if (_statsFilter !== 'all' && e.status !== _statsFilter) return false;
+    if (_statsSearch) {
+      const q = _statsSearch.toLowerCase();
+      return (e.filename||'').toLowerCase().includes(q) ||
+             (e.game_name||'').toLowerCase().includes(q) ||
+             (e.disc_id||'').toLowerCase().includes(q);
+    }
+    return true;
+  });
+
+  // ── Sort ─────────────────────────────────────────────────────
+  const col = _statsSort.col;
+  rows.sort((a, b) => {
+    let av = a[col], bv = b[col];
+    if (av == null) av = col === 'timestamp' ? '' : -Infinity;
+    if (bv == null) bv = col === 'timestamp' ? '' : -Infinity;
+    return av < bv ? -_statsSort.dir : av > bv ? _statsSort.dir : 0;
+  });
+
+  document.getElementById('statsRowCount').textContent =
+    rows.length + ' row' + (rows.length !== 1 ? 's' : '');
+
+  // ── Render header sort indicators ────────────────────────────
+  document.querySelectorAll('.st-col').forEach(th => {
+    const base = th.textContent.replace(/ [↑↓↕]$/, '');
+    if (th.dataset.col === col) {
+      th.textContent = base + ' ' + (_statsSort.dir === -1 ? '↓' : '↑');
+      th.style.color = 'var(--text-primary)';
+    } else {
+      th.textContent = base + ' ↕';
+      th.style.color = '';
+    }
+  });
+
+  // ── Render rows ──────────────────────────────────────────────
+  const STATUS_COLOR = { completed: 'var(--success)', failed: 'var(--error)', skipped: 'var(--warning)' };
+  const tbody = document.getElementById('statsTableBody');
+  const empty = document.getElementById('statsEmpty');
+
+  if (rows.length === 0) {
+    tbody.innerHTML = '';
+    empty.style.display = 'block';
+    empty.textContent = entries.length === 0
+      ? 'No stats yet — completed conversions will appear here.'
+      : 'No results match your filter.';
+    return;
+  }
+  empty.style.display = 'none';
+
+  tbody.innerHTML = rows.map(e => {
+    const statusDot = `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${STATUS_COLOR[e.status]||'var(--text-muted)'};margin-right:5px;flex-shrink:0"></span>`;
+    const name = esc(e.game_name || e.filename || '—');
+    const discBadge = e.disc_id ? `<span style="font-size:10px;color:var(--text-muted);margin-left:5px">${esc(e.disc_id)}</span>` : '';
+    const isoSz  = e.input_bytes  ? fmtBytes(e.input_bytes)  : '—';
+    const chdSz  = e.output_bytes ? fmtBytes(e.output_bytes) : '—';
+    const saved  = e.saved_bytes  ? fmtBytes(e.saved_bytes)  : '—';
+    const ratio  = e.ratio_pct  != null ? e.ratio_pct + '%'    : '—';
+    const speed  = e.speed_mbps != null ? e.speed_mbps + ' MB/s' : '—';
+    const dur    = e.elapsed_sec ? formatDuration(e.elapsed_sec) : '—';
+    const type   = e.chd_type ? `<span style="font-size:10px;background:var(--bg-tertiary);padding:1px 5px;border-radius:4px">${esc(e.chd_type.toUpperCase())}</span>` : '—';
+    const ts     = e.timestamp ? new Date(e.timestamp).toLocaleDateString([], {month:'short',day:'numeric',year:'numeric'}) : '—';
+    const errTitle = e.error ? ` title="${esc(e.error)}"` : '';
+    const rowStyle = e.status === 'failed' ? 'background:color-mix(in srgb,var(--error) 5%,transparent)' : '';
+    return `<tr style="border-bottom:1px solid var(--border);${rowStyle}" ${errTitle}>
+      <td style="padding:7px 6px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}${discBadge}</td>
+      <td style="padding:7px 6px;white-space:nowrap">${statusDot}${e.status}</td>
+      <td style="padding:7px 6px;text-align:right;white-space:nowrap">${isoSz}</td>
+      <td style="padding:7px 6px;text-align:right;white-space:nowrap">${chdSz}</td>
+      <td style="padding:7px 6px;text-align:right;white-space:nowrap">${saved}</td>
+      <td style="padding:7px 6px;text-align:right;white-space:nowrap;font-weight:${e.ratio_pct!=null?'600':'400'};color:${e.ratio_pct!=null?'var(--success)':'inherit'}">${ratio}</td>
+      <td style="padding:7px 6px;text-align:right;white-space:nowrap">${speed}</td>
+      <td style="padding:7px 6px;text-align:right;white-space:nowrap">${dur}</td>
+      <td style="padding:7px 6px">${type}</td>
+      <td style="padding:7px 6px;white-space:nowrap;color:var(--text-muted);font-size:11px">${ts}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function clearStats() {
+  if (!confirm('Clear all statistics? This cannot be undone.')) return;
+  await fetch('/api/stats/clear', { method: 'POST' });
+  _statsData = { entries: [], totals: {} };
+  renderStats();
+}
+
+// Sort on header click
+document.getElementById('statsTableHead').addEventListener('click', e => {
+  const th = e.target.closest('.st-col');
+  if (!th) return;
+  const col = th.dataset.col;
+  if (_statsSort.col === col) _statsSort.dir *= -1;
+  else { _statsSort.col = col; _statsSort.dir = col === 'timestamp' ? -1 : -1; }
+  renderStats();
+});
+
+document.getElementById('statsSearch').addEventListener('input', e => {
+  _statsSearch = e.target.value.trim();
+  renderStats();
+});
+
+document.getElementById('statsFilter').addEventListener('change', e => {
+  _statsFilter = e.target.value;
+  renderStats();
+});
+
+// Live update: when a job completes, refresh stats if tab is open
+function maybeRefreshStats(job) {
+  if (['completed','failed','skipped'].includes(job.status) &&
+      document.getElementById('viewStats').style.display !== 'none') {
+    loadStats();
+  }
+}
+
 </script>
 
 <!-- Dupe Scanner Modal -->
@@ -2106,18 +2306,6 @@ registerRAListener();
       </div>
       <div id="dupeRemoveLive" style="font-size:12px;color:var(--text-muted);font-family:monospace"></div>
     </div>
-  </div>
-</div>
-
-<!-- Batch Complete Report Modal -->
-<div id="batchReportModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000" onclick="if(event.target===this)this.style.display='none'">
-  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:28px 32px;max-width:480px;width:90%;box-shadow:0 24px 60px rgba(0,0,0,.5)">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
-      <h2 style="font-size:17px;font-weight:700">🎉 Batch Complete</h2>
-      <button onclick="document.getElementById('batchReportModal').style.display='none'" style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer">✕</button>
-    </div>
-    <div id="batchReportContent" style="display:grid;grid-template-columns:1fr 1fr;gap:12px"></div>
-    <button class="btn btn-primary" style="width:100%;margin-top:20px" onclick="document.getElementById('batchReportModal').style.display='none'">Close</button>
   </div>
 </div>
 

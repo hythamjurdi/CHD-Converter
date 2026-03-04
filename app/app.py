@@ -125,6 +125,8 @@ def update_job(job_id, **kwargs):
     if completed:
         from history import history_manager
         history_manager.add(data)
+        from stats_manager import stats_manager
+        stats_manager.record(data)
 
 
 def log_to_job(job_id, message, level="info"):
@@ -617,6 +619,17 @@ def ra_stop():
     ra_scan_stop[0] = True
     return jsonify({"ok": True})
 
+
+@app.route("/api/stats", methods=["GET"])
+def get_stats():
+    from stats_manager import stats_manager
+    return jsonify(stats_manager.get_all())
+
+@app.route("/api/stats/clear", methods=["POST"])
+def clear_stats():
+    from stats_manager import stats_manager
+    stats_manager.clear()
+    return jsonify({"ok": True})
 
 @app.route("/api/temp/clear", methods=["POST"])
 def clear_temp():
