@@ -620,14 +620,15 @@ function connectSSE() {
       const activeNow = Object.values(jobs).filter(x => ['running','extracting','rezipping'].includes(x.status)).length;
       const queuedNow = Object.values(jobs).filter(x => x.status === 'queued').length;
       const batchTotal = batchDone + batchFailed + batchSkipped;
-      if (activeNow === 0 && queuedNow === 0 && batchTotal >= 2) {
+      const batchActual = batchDone + batchFailed;  // skips-only = no report
+      if (activeNow === 0 && queuedNow === 0 && batchActual >= 1 && batchTotal >= 1 && batchStartTime !== null) {
         stopETA();
         showBatchReport();
         batchReset();
       }
     }
     // Start batch timer when first active job appears
-    if (['running','extracting'].includes(j.status) && batchStartTime === null) {
+    if (['running','extracting','rezipping'].includes(j.status) && batchStartTime === null) {
       batchReset();
       batchStartTime = Date.now();
       startETA();
@@ -1322,7 +1323,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ── RA Credentials UI ─────────────────────────────────────────────────────
 
+let _raConnected = false;  // true when RA credentials verified OK
+
 function raSetStatus(state, msg) {
+  _raConnected = (state === 'ok');
   // state: 'none' | 'checking' | 'ok' | 'fail'
   const icon = document.getElementById('raStatusIcon');
   const text = document.getElementById('raStatusText');
@@ -1479,7 +1483,7 @@ let batchDone = 0, batchFailed = 0, batchSkipped = 0;
 let batchTotalInput = 0, batchTotalOutput = 0;
 
 function batchReset() {
-  batchStartTime = Date.now();
+  batchStartTime = null;  // set when first running job seen, NOT here
   batchDone = batchFailed = batchSkipped = 0;
   batchTotalInput = batchTotalOutput = 0;
   batchJobCount = 0;
@@ -1717,6 +1721,14 @@ document.querySelectorAll('.ra-filter-tab').forEach(tab => {
 });
 
 document.getElementById('raScanBtn').addEventListener('click', async () => {
+  if (!_raConnected) {
+    const liveEl = document.getElementById('raLiveText');
+    const liveBar = document.getElementById('raLiveStatus');
+    liveBar.style.display = 'flex';
+    liveEl.textContent = '⛔ Please connect your RetroAchievements account in Settings first.';
+    setTimeout(() => { liveBar.style.display = 'none'; }, 4000);
+    return;
+  }
   const folder = raGetFolder();
   const btn = document.getElementById('raScanBtn');
   btn.disabled = true; btn.textContent = 'Scanning…';

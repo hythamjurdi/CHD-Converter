@@ -8,10 +8,17 @@ MIN_ISO_SIZE       = 1 * 1024 * 1024
 MAX_ISO_SIZE       = 9.5 * 1024 * 1024 * 1024
 
 
+KNOWN_EXTS = {'.chd', '.iso', '.img', '.bin', '.cue', '.7z', '.zip',
+              '.rar', '.mdf', '.nrg', '.tar', '.gz', '.tgz'}
+
+
 def _normalize_name(s):
-    # Strip parentheticals/brackets for fuzzy duplicate matching:
-    # "The Simpsons (USA) (v1.5)" -> "the simpsons"
-    s = os.path.splitext(s)[0]
+    # Strip ONLY known media/archive extensions before normalizing.
+    # os.path.splitext on "Game (v1.00)" gives ("Game (v1", ".00)") which
+    # is wrong — so we only strip if the extension is a known one.
+    base, ext = os.path.splitext(s)
+    s = base if ext.lower() in KNOWN_EXTS else s
+    # Strip all parenthetical/bracket groups: "(USA)", "[!]", "(v1.03)", etc.
     s = re.sub(r'[\(\[][^\)\]]*[\)\]]', '', s)
     s = re.sub(r'\s+', ' ', s).strip()
     return s.lower()
@@ -459,39 +466,39 @@ class ConversionWorker:
                     self.update_job(job_id, status="skipped")
                     return
 
-                  # Pre-extraction conflict check (enabled in settings for duplicate detection)
-                if self.settings.get("pre_check_before_extract", False):
-                    # Fast duplicate check: normalize names and scan dest folder once.
-                    # Ignores parenthetical differences: "Game (USA)" matches "Game (v2)"
-                    archive_base  = os.path.splitext(os.path.basename(file_path))[0]
-                    overwrite_set = self.settings.get("overwrite_existing", "ask")
-                    norm_archive  = _normalize_name(archive_base)
+                # ── Always-on fast duplicate check (uses zip name, no extraction) ──
+                # Normalised comparison ignores ALL parentheticals:
+                # "Game (USA) (v1.03)" == "Game (USA) (v2.00)" == "Game"
+                archive_base  = os.path.splitext(os.path.basename(file_path))[0]
+                overwrite_set = self.settings.get("overwrite_existing", "ask")
+                norm_archive  = _normalize_name(archive_base)
+                dest_names    = build_dest_chd_set(dest_folder)
 
-                    dest_names = build_dest_chd_set(dest_folder)
-
-                    if norm_archive in dest_names or overwrite_set == "skip":
-                        # Also check exact name for overwrite=ask/overwrite cases
-                        if norm_archive in dest_names:
-                            if overwrite_set == "skip":
-                                self.update_job(job_id, status="skipped", progress=100)
-                                log(f"Skipped (duplicate detected pre-extraction): {archive_base}", "warn")
-                                return
-                            elif overwrite_set == "ask":
-                                # Find the actual matching file for conflict dialog
-                                for root, _, files in os.walk(dest_folder):
-                                    for fname in files:
-                                        if fname.lower().endswith(('.chd', '.7z')) and \
-                                                _normalize_name(fname) == norm_archive:
-                                            conflict_result = self._handle_conflict(
-                                                job_id, os.path.join(root, fname), log)
-                                            if conflict_result == "skip":
-                                                self.update_job(job_id, status="skipped", progress=100)
-                                                return
-                                            break
-                                    else:
-                                        continue
+                if norm_archive in dest_names:
+                    if overwrite_set == "skip":
+                        self.update_job(job_id, status="skipped", progress=100)
+                        log(f"⏭ Skipped — already exists in destination: {archive_base}", "warn")
+                        return
+                    elif overwrite_set == "ask":
+                        match_path = None
+                        for root, _, files in os.walk(dest_folder):
+                            for fname in files:
+                                if fname.lower().endswith(('.chd', '.7z')) and \
+                                        _normalize_name(fname) == norm_archive:
+                                    match_path = os.path.join(root, fname)
                                     break
-                tmp_dir = tempfile.mkdtemp(prefix="chd_extract_")
+                            if match_path:
+                                break
+                        if match_path:
+                            conflict_result = self._handle_conflict(job_id, match_path, log)
+                            if conflict_result == "skip":
+                                self.update_job(job_id, status="skipped", progress=100)
+                                return
+                    # overwrite_set == "overwrite": fall through and proceed
+
+                # Use dest volume for tmp so extraction doesn't fill Docker overlay
+                _tmp_base = dest_folder if os.path.isdir(dest_folder) else None
+                tmp_dir = tempfile.mkdtemp(prefix="chd_extract_", dir=_tmp_base)
                 try:
                     # ── EXTRACTING ────────────────────────────────
                     self.update_job(job_id, status="extracting", progress=5)
@@ -531,6 +538,7 @@ class ConversionWorker:
                         self.update_job(job_id, status="running")
                         chd_type = self.settings.get("chd_type", "auto")
                         if chd_type == "auto":
+
                             chd_type = detect_chd_type(src)
 
                         if dump_mode != "off":
@@ -629,6 +637,16 @@ class ConversionWorker:
 
                 base    = self._out_base(file_path, None, game_name)
                 out_chd = os.path.join(dest_folder, base + ".chd")
+
+                # Fast normalized duplicate check (same logic as archive path)
+                norm_src  = _normalize_name(os.path.basename(file_path))
+                dest_names = build_dest_chd_set(dest_folder)
+                overwrite_set = self.settings.get("overwrite_existing", "ask")
+                if norm_src in dest_names and overwrite_set == "skip":
+                    self.update_job(job_id, status="skipped", progress=100)
+                    log(f"⏭ Skipped — already exists in destination: {base}", "warn")
+                    return
+
                 log(f"Converting: {os.path.basename(file_path)} → {base}.chd ({chd_type.upper()})")
                 self.update_job(job_id, progress=10, chd_type_used=chd_type)
 
