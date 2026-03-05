@@ -38,20 +38,44 @@ def build_dest_chd_set(dest_folder):
 
 
 def make_temp_cue(bin_path, tmp_dir):
-    # Auto-generate a minimal CUE sheet for a bare BIN file.
-    # Detects Mode1 vs Mode2 from the raw sync pattern at sector 0.
+    """
+    Auto-generate a minimal CUE sheet for a bare .bin file.
+
+    Detection strategy (reads first 2352 bytes):
+      1. Check for raw-sector sync pattern at byte 0: 00 FF*10 00
+         - Byte 15 = mode byte: 1 → MODE1/2352, 2 → MODE2/2352
+      2. If no sync at offset 0, check offset 2336 (some discs have a 2336-byte
+         user-data layout with a different pregap): same sync check
+      3. Use file size to infer sector size:
+         - size % 2352 == 0 → raw sectors, default MODE2/2352
+         - size % 2048 == 0 → cooked sectors, MODE1/2048
+      4. Final fallback: MODE2/2352 (most common for PS2)
+    """
     mode = 'MODE2/2352'
     try:
+        file_size = os.path.getsize(bin_path)
         with open(bin_path, 'rb') as f:
-            header = f.read(16)
+            raw = f.read(2352)
+
         sync = b'\x00\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\x00'
-        if header[:12] == sync:
-            mode_byte = header[15] if len(header) > 15 else 2
+
+        # Check standard sector-0 sync
+        if len(raw) >= 16 and raw[:12] == sync:
+            mode_byte = raw[15]
             mode = 'MODE1/2352' if mode_byte == 1 else 'MODE2/2352'
-        else:
-            mode = 'MODE1/2048'
+        # Check sync at offset 16 (Mode2/Form2 XA header skip)
+        elif len(raw) >= 28 and raw[16:28] == sync:
+            mode = 'MODE2/2352'
+        # Fall back to file-size inference
+        elif file_size > 0:
+            if file_size % 2352 == 0:
+                mode = 'MODE2/2352'   # raw sectors — default PS2
+            elif file_size % 2048 == 0:
+                mode = 'MODE1/2048'   # cooked/ISO-style
+            # else keep MODE2/2352 default
     except Exception:
         pass
+
     cue_name = os.path.splitext(os.path.basename(bin_path))[0] + '.cue'
     cue_path = os.path.join(tmp_dir, cue_name)
     with open(cue_path, 'w') as f:
@@ -513,17 +537,23 @@ class ConversionWorker:
                     cue_files              = find_cue_files(tmp_dir)
                     iso_files, orphan_bins = find_iso_files(tmp_dir)
 
-                    # Log any orphan .bin files (no .cue) so the user knows why they were skipped
+                    # Auto-generate CUE sheets for orphan .bin files (no paired .cue found).
+                    # make_temp_cue() sniffs the sector header to detect MODE1 vs MODE2.
+                    # Generated .cue goes in the same tmp_dir so chdman can find the .bin
+                    # by relative name — no file copying needed.
                     for obin in orphan_bins:
-                        log(f"⚠️  Skipped '{os.path.basename(obin)}': no matching .cue file. "
-                            "Re-archive this game with its .cue included.", "error")
+                        try:
+                            gen_cue = make_temp_cue(obin, os.path.dirname(obin))
+                            cue_files.append(gen_cue)
+                            log(f"📄 Auto-generated CUE for '{os.path.basename(obin)}'", "info")
+                        except Exception as cue_err:
+                            log(f"⚠️  Could not generate CUE for '{os.path.basename(obin)}': {cue_err}", "warn")
 
                     convertible = cue_files if cue_files else iso_files
 
                     if not convertible:
                         if orphan_bins:
-                            log("Skipped: archive contains only .bin files with no .cue sheets. "
-                                "Re-archive with the .cue included to convert this game.", "warn")
+                            log("Skipped: archive contains only .bin files and CUE generation failed.", "warn")
                             self.update_job(job_id, status="skipped", progress=100)
                         else:
                             log("No convertible files found in archive.", "error")

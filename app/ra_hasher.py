@@ -125,16 +125,29 @@ def _find_in_dir(f, dir_lba, dir_size, sec_size, usr_off, pregap, target):
 # ── SYSTEM.CNF parser ─────────────────────────────────────────────
 
 def _parse_system_cnf(data):
+    """
+    Parse BOOT2 line from SYSTEM.CNF and return the boot executable filename.
+    e.g. BOOT2 = cdrom0:\\SLUS_20572.02;1  ->  SLUS_20572.02
+
+    The old regex required exactly 3 digits (d{3}) which matched zero real
+    PS2 disc IDs — all have 5 digits like SLUS_20572. Fixed to capture the
+    full filename after the cdrom path, then take the last path component.
+    """
     try:
         text = data.decode('ascii', errors='replace')
     except Exception:
         return None
     for line in text.splitlines():
         if 'BOOT2' in line.upper():
-            m = re.search(r'(?:cdrom\d*[:\\/]+)?([A-Z]{2,6}[_-]\d{3}[\._]\d{2})',
-                          line, re.IGNORECASE)
+            # Capture everything after cdrom0:\ including optional subdirs
+            m = re.search(r'BOOT2\s*=\s*cdrom\d*[:\\/]+([\w\\/\.]+)', line, re.IGNORECASE)
             if m:
-                return m.group(1).upper()
+                raw = m.group(1).strip()
+                # Take the last path component (the filename itself)
+                fname = re.split(r'[\\/]', raw)[-1]
+                # Strip ISO 9660 version suffix ;1
+                fname = fname.split(';')[0]
+                return fname.upper() if fname else None
     return None
 
 
