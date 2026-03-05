@@ -57,9 +57,13 @@ class StatsManager:
         # Derived fields
         ib, ob = entry["input_bytes"], entry["output_bytes"]
         entry["saved_bytes"]  = max(0, ib - ob) if (ib > 0 and ob > 0) else 0
-        entry["ratio_pct"]    = round((1 - ob / ib) * 100) if (ib > 0 and ob > 0) else None
-        entry["speed_mbps"]   = round(ib / entry["elapsed_sec"] / 1_000_000, 1) \
-                                if (ib > 0 and entry["elapsed_sec"] > 0) else None
+        # ratio_pct: only compute when input is meaningful (>1KB).
+        # Zero input means size wasn't captured (e.g. CUE-only before the BIN-size fix).
+        if ib > 1024 and ob > 0:
+            entry["ratio_pct"] = round((1 - ob / ib) * 100)
+        else:
+            entry["ratio_pct"] = None
+        entry["speed_mbps"]   = round(ib / entry["elapsed_sec"] / 1_000_000, 1)                                 if (ib > 1024 and entry["elapsed_sec"] > 0) else None
 
         self._data["entries"].insert(0, entry)
         self._data["entries"] = self._data["entries"][:5000]  # cap at 5000

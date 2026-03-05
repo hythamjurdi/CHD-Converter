@@ -569,7 +569,38 @@ class ConversionWorker:
                     # Exception: if we're rezipping to 7z, keep archive size (7z→7z is fair).
                     if not do_rezip:
                         try:
-                            iso_bytes = sum(os.path.getsize(f) for f in convertible if os.path.exists(f))
+                            # convertible may be CUE files — sum the actual BIN/ISO data files instead.
+                            # For each CUE, resolve its referenced BIN. For ISOs, use directly.
+                            data_files = []
+                            for f in convertible:
+                                if f.lower().endswith('.cue'):
+                                    # Resolve all BIN references in the CUE
+                                    # Handles both quoted: FILE "name.bin" BINARY
+                                    # and unquoted:        FILE name.bin BINARY
+                                    try:
+                                        with open(f) as cf:
+                                            for line in cf:
+                                                ls = line.strip()
+                                                if ls.upper().startswith('FILE'):
+                                                    # Try quoted first
+                                                    parts = ls.split('"')
+                                                    if len(parts) >= 3:
+                                                        bin_ref = parts[1]
+                                                    else:
+                                                        # Unquoted: FILE name.bin BINARY
+                                                        tokens = ls.split()
+                                                        bin_ref = tokens[1] if len(tokens) >= 2 else ''
+                                                    if bin_ref:
+                                                        bin_path = os.path.join(os.path.dirname(f), bin_ref)
+                                                        if os.path.exists(bin_path):
+                                                            data_files.append(bin_path)
+                                    except Exception:
+                                        pass
+                                else:
+                                    data_files.append(f)
+                            # Deduplicate (multi-track CUEs may reference same BIN multiple times)
+                            data_files = list(dict.fromkeys(data_files))
+                            iso_bytes = sum(os.path.getsize(f) for f in data_files if os.path.exists(f))
                             if iso_bytes > 0:
                                 self.update_job(job_id, input_bytes=iso_bytes)
                         except Exception:

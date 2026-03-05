@@ -153,35 +153,74 @@ def _parse_system_cnf(data):
 
 # ── CUE parser ────────────────────────────────────────────────────
 
+def _parse_index_time(ts):
+    """Convert MM:SS:FF timecode string to frame count."""
+    m = re.match(r'(\d+):(\d+):(\d+)', ts)
+    if m:
+        return int(m.group(1)) * 60 * 75 + int(m.group(2)) * 75 + int(m.group(3))
+    return 0
+
+
 def _parse_cue(cue_path):
-    """Return list of (bin_path, track_num, track_type, pregap_frames)."""
+    """Return list of track dicts with pregap correctly derived from INDEX 00/01.
+
+    chdman extractcd uses INDEX 00/INDEX 01 to express pregap, NOT the PREGAP
+    keyword. Previously only PREGAP was checked, so all extracted CHDs had
+    cue_pregap=0 and sector reads were offset by 150 frames.
+    """
     cue_dir = os.path.dirname(cue_path)
     tracks = []
     current_bin = None
     try:
         with open(cue_path, errors='replace') as f:
             for line in f:
-                line = line.strip()
-                if line.upper().startswith('FILE'):
-                    parts = line.split('"')
-                    if len(parts) >= 2:
-                        current_bin = os.path.join(cue_dir, parts[1])
-                elif line.upper().startswith('TRACK') and current_bin:
-                    m = re.match(r'TRACK\s+(\d+)\s+(\S+)', line, re.IGNORECASE)
+                ls = line.strip()
+                lu = ls.upper()
+                if lu.startswith('FILE'):
+                    # Handle both quoted and unquoted FILE lines
+                    parts = ls.split('"')
+                    if len(parts) >= 3:
+                        bin_ref = parts[1]
+                    else:
+                        tokens = ls.split()
+                        bin_ref = tokens[1] if len(tokens) >= 2 else ''
+                    if bin_ref:
+                        current_bin = os.path.join(cue_dir, bin_ref)
+                elif lu.startswith('TRACK') and current_bin:
+                    m = re.match(r'TRACK\s+(\d+)\s+(\S+)', ls, re.IGNORECASE)
                     if m:
                         tracks.append({
                             "bin":    current_bin,
                             "track":  int(m.group(1)),
                             "type":   m.group(2).upper(),
                             "pregap": 0,
+                            "_idx00": None,
+                            "_idx01": None,
                         })
-                elif line.upper().startswith('PREGAP') and tracks:
-                    m = re.match(r'PREGAP\s+(\d+):(\d+):(\d+)', line, re.IGNORECASE)
+                elif lu.startswith('PREGAP') and tracks:
+                    # Explicit PREGAP keyword (some CUE tools use this)
+                    m = re.match(r'PREGAP\s+(\d+):(\d+):(\d+)', ls, re.IGNORECASE)
                     if m:
-                        frames = int(m.group(1))*60*75 + int(m.group(2))*75 + int(m.group(3))
-                        tracks[-1]["pregap"] = frames
+                        tracks[-1]["pregap"] = _parse_index_time(m.group(0).split(None,1)[1])
+                elif lu.startswith('INDEX') and tracks:
+                    m = re.match(r'INDEX\s+(\d+)\s+(\S+)', ls, re.IGNORECASE)
+                    if m:
+                        n, ts = int(m.group(1)), m.group(2)
+                        if n == 0:
+                            tracks[-1]["_idx00"] = _parse_index_time(ts)
+                        elif n == 1:
+                            tracks[-1]["_idx01"] = _parse_index_time(ts)
     except Exception:
         pass
+
+    # Derive pregap from INDEX 00/01 difference if PREGAP keyword wasn't present
+    for t in tracks:
+        if t["pregap"] == 0 and t["_idx00"] is not None and t["_idx01"] is not None:
+            t["pregap"] = t["_idx01"] - t["_idx00"]
+        # Clean up temp keys
+        t.pop("_idx00", None)
+        t.pop("_idx01", None)
+
     return tracks
 
 
