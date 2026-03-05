@@ -18,6 +18,7 @@ Built with the assistance of [Claude AI](https://claude.ai) by Anthropic.
 - Conflict resolution — ask / skip / overwrite with apply-to-all option
 - Conversion history that survives container restarts
 - Dark / light mode
+- Auto-generates cue file for solo bin files
 
 
 - **RA Hasing is still experimental and needs tweaking**
