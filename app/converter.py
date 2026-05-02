@@ -400,7 +400,7 @@ def run_chdman(input_file, output_file, chd_type, log_fn=None, progress_fn=None)
         if chd_type == "hd":
             cmd = ["chdman", "createhd",  "-i", input_file, "-o", output_file, "-f"]
         elif chd_type == "dvd":
-            cmd = ["chdman", "createdvd", "-i", input_file, "-o", output_file, "-f"]
+            cmd = ["chdman", "createraw", "-i", input_file, "-o", output_file, "-f"]
         else:
             cmd = ["chdman", "createcd",  "-i", input_file, "-o", output_file, "-f"]
         if log_fn: log_fn(f"Running: {' '.join(cmd)}")

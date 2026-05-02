@@ -325,7 +325,7 @@ def compute_ra_hash(chd_path, log_fn=None, progress_fn=None):
 
         if log_fn:
             if is_dvd:
-                log_fn("[RA] CHD type: DVD (createdvd — using extractraw)")
+                log_fn("[RA] CHD type: DVD/raw (createraw — using extractraw)")
             else:
                 t = data_track["type"] if data_track else "unknown"
                 log_fn("[RA] CHD type: CD (createcd — track type: %s)" % t)
