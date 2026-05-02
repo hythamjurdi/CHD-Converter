@@ -441,7 +441,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
           </div>
           <div class="settings-section">
             <h3>⚙️ Conversion Options</h3><p class="section-desc">Control how files are converted</p>
-            <div class="form-group"><label>CHD Type Override</label><select id="settChdType"><option value="auto">Auto-detect (recommended)</option><option value="cd">Always use CD (createcd)</option><option value="hd">Always use HD (createhd)</option></select></div>
+            <div class="form-group"><label>CHD Type Override</label><select id="settChdType"><option value="auto">Auto-detect (recommended)</option><option value="cd">Always CD (createcd)</option><option value="dvd">Always DVD (createdvd)</option><option value="hd">Always HD (createhd)</option></select></div>
             <div class="form-group"><label>If CHD Already Exists</label><select id="settOverwrite"><option value="ask">Ask me</option><option value="skip">Always skip</option><option value="overwrite">Always overwrite</option></select></div>
             <div class="form-group"><label>Concurrent Workers</label><input type="number" id="settWorkers" min="1" max="8" value="1"><div style="font-size:11px;color:var(--text-muted);margin-top:4px">Simultaneous conversions.</div></div>
           </div>
@@ -1924,8 +1924,62 @@ function makeRARow(item) {
 
   const statusCol = `<div style="font-size:12px;font-weight:700;color:${color};white-space:nowrap">${label}</div>`;
 
-  div.innerHTML = nameCol + hashCol + statusCol;
+  const debugBtn = `<button title="Run full diagnostic on this file"
+    style="background:none;border:1px solid var(--border);border-radius:4px;color:var(--text-muted);font-size:10px;padding:2px 6px;cursor:pointer;white-space:nowrap"
+    onclick="raDebug(${JSON.stringify(item.path)}, this)">🔍 Debug</button>`;
+
+  div.style.gridTemplateColumns = '1fr auto auto auto';
+  div.innerHTML = nameCol + hashCol + debugBtn + statusCol;
   return div;
+}
+
+async function raDebug(path, btn) {
+  const origText = btn.textContent;
+  btn.textContent = '⏳';
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/ra/debug', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path})
+    });
+    const d = await r.json();
+
+    // Show result in a modal-style overlay
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:2000;display:flex;align-items:center;justify-content:center';
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+
+    const lines = [
+      `File: ${d.path}`,
+      ``,
+      ...( d.log || []),
+      ``,
+      d.error  ? `❌ Error: ${d.error}` : `✅ Hash: ${d.hash}`,
+      d.exe    ? `   Exe:  ${d.exe}`    : '',
+      d.ra     ? `   RA:   ${d.ra.found ? '✅ FOUND — ' + (d.ra.game_title||'ID '+d.ra.game_id) : '❌ Not in RA database'}` : '',
+      d.ra?.error ? `   RA error: ${d.ra.error}` : '',
+    ].filter(l => l !== undefined);
+
+    overlay.innerHTML = `
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;
+                  width:min(700px,95vw);max-height:80vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.5)">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)">
+          <strong style="font-size:14px">🔍 RA Hash Diagnostic</strong>
+          <button onclick="this.closest('[style*=fixed]').remove()"
+            style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;line-height:1">✕</button>
+        </div>
+        <pre style="flex:1;overflow-y:auto;margin:0;padding:16px 20px;font-size:12px;
+                    line-height:1.6;color:var(--text-primary);font-family:monospace;white-space:pre-wrap"
+          >${esc(lines.join('\n'))}</pre>
+      </div>`;
+    document.body.appendChild(overlay);
+  } catch(e) {
+    alert('Debug request failed: ' + e.message);
+  } finally {
+    btn.textContent = origText;
+    btn.disabled = false;
+  }
 }
 
 function renderRAList() {

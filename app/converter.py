@@ -88,10 +88,47 @@ def make_temp_cue(bin_path, tmp_dir):
 # ── Detection helpers ────────────────────────────────────────────
 
 def detect_chd_type(file_path):
+    """
+    Detect whether a disc image is CD or DVD by inspecting its content.
+
+    - .cue / .bin / .mdf / .nrg  → always CD (formats are CD-specific)
+    - .iso / .img                 → sniff file: check raw-sector sync pattern
+      * Raw sync (00 FF*10 00) at byte 0 or 16 → raw CD sectors → 'cd'
+      * No raw sync + file > 900 MB            → cooked DVD sectors → 'dvd'
+      * No raw sync + ISO9660 PVD at 2048*16   → cooked, probably DVD → 'dvd'
+      * Fallback                               → 'cd'
+    """
     ext = os.path.splitext(file_path)[1].lower()
-    if ext in (".iso", ".img", ".bin", ".cue", ".mdf", ".nrg"):
+
+    if ext in (".cue", ".bin", ".mdf", ".nrg"):
         return "cd"
-    return "cd"
+
+    if ext in (".iso", ".img"):
+        try:
+            size = os.path.getsize(file_path)
+            with open(file_path, "rb") as f:
+                header = f.read(2352)
+
+            RAW_SYNC = b"\x00\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\x00"
+            if header[:12] == RAW_SYNC or (len(header) > 27 and header[16:28] == RAW_SYNC):
+                return "cd"   # raw 2352-byte sectors → CD
+
+            # No raw sync = cooked 2048-byte sectors
+            if size > 900 * 1024 * 1024:   # > 900 MB is always a DVD
+                return "dvd"
+
+            # Smaller cooked image: check for ISO9660 PVD at cooked sector 16
+            pvd_offset = 16 * 2048
+            if size > pvd_offset + 8:
+                with open(file_path, "rb") as f:
+                    f.seek(pvd_offset)
+                    pvd = f.read(8)
+                if pvd[1:6] == b"CD001":   # cooked ISO9660 → DVD
+                    return "dvd"
+        except Exception:
+            pass
+
+    return "cd"   # safe fallback for unknown / bare BIN
 
 def find_cue_files(folder):
     cues = []
@@ -361,9 +398,11 @@ def run_chdman(input_file, output_file, chd_type, log_fn=None, progress_fn=None)
                 if log_fn: log_fn(f"Auto-generated CUE for bare BIN ({os.path.basename(input_file)})", "warn")
                 input_file = cue  # pass the CUE to chdman
         if chd_type == "hd":
-            cmd = ["chdman", "createhd", "-i", input_file, "-o", output_file, "-f"]
+            cmd = ["chdman", "createhd",  "-i", input_file, "-o", output_file, "-f"]
+        elif chd_type == "dvd":
+            cmd = ["chdman", "createdvd", "-i", input_file, "-o", output_file, "-f"]
         else:
-            cmd = ["chdman", "createcd", "-i", input_file, "-o", output_file, "-f"]
+            cmd = ["chdman", "createcd",  "-i", input_file, "-o", output_file, "-f"]
         if log_fn: log_fn(f"Running: {' '.join(cmd)}")
         rc = _run_with_progress(cmd, log_fn=log_fn, progress_fn=progress_fn)
         if rc != 0:

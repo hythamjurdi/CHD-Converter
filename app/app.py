@@ -620,6 +620,27 @@ def ra_stop():
     return jsonify({"ok": True})
 
 
+
+@app.route("/api/ra/debug", methods=["POST"])
+def ra_debug():
+    """Run RA hash on a single CHD and return full diagnostic trace."""
+    path = request.json.get("path", "")
+    if not path or not os.path.exists(path):
+        return jsonify({"error": "File not found: %s" % path})
+    log_lines = []
+    def log_fn(msg): log_lines.append(msg)
+    from ra_hasher import compute_ra_hash, lookup_ra_hash
+    md5, exe, err = compute_ra_hash(path, log_fn=log_fn)
+    result = {"path": path, "log": log_lines, "hash": md5, "exe": exe, "error": err}
+    if md5:
+        ra_result = lookup_ra_hash(
+            md5,
+            ra_username=settings.get("ra_username", ""),
+            ra_api_key=settings.get("ra_api_key", ""),
+        )
+        result["ra"] = ra_result
+    return jsonify(result)
+
 @app.route("/api/statistics", methods=["GET"])
 def get_statistics():
     from stats_manager import stats_manager

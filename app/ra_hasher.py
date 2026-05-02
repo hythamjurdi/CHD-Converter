@@ -276,17 +276,40 @@ def lookup_ra_hash(md5_hash, ra_username=None, ra_api_key=None, timeout=8):
 
 # ── Main entry point ──────────────────────────────────────────────
 
+def _is_dvd_chd(chd_path):
+    """
+    Return True if this CHD was created with createdvd (raw DVD sectors).
+    createdvd CHDs have no track metadata — chdman info shows no TRACK lines.
+    CD CHDs (createcd) always have at least one TRACK entry.
+    """
+    try:
+        r = subprocess.run(["chdman", "info", "-i", chd_path],
+                           capture_output=True, text=True, timeout=30)
+        output = r.stdout + r.stderr
+        # CD CHDs list tracks; DVD CHDs just show hunk/sector info
+        if "TRACK:" in output.upper() or "Track " in output:
+            return False
+        # Also check: DVD CHDs show sector size 2048, CD CHDs show 2352 or 2448
+        if "2048 bytes/sector" in output or "bytes/sector: 2048" in output:
+            return True
+        if "2352" in output or "2448" in output:
+            return False
+        # Fallback: if extractcd fails and extractraw succeeds → DVD
+        return False
+    except Exception:
+        return False
+
+
 def compute_ra_hash(chd_path, log_fn=None, progress_fn=None):
     """
     Compute the RA PS2 hash for a CHD file.
-    Uses chdman extractcd (reliable, format-agnostic).
+    Handles both CD CHDs (createcd → extractcd → CUE/BIN) and
+    DVD CHDs (createdvd → extractraw → raw ISO with 2048-byte sectors).
     Returns (md5_hash, exe_name, error).
     """
     if not os.path.exists(chd_path):
         return None, None, "File not found"
 
-    # Use a sibling tmp dir in the same volume as the CHD so extraction
-    # doesn't write into the Docker overlay filesystem (/tmp inside container)
     chd_dir  = os.path.dirname(chd_path)
     tmp_base = chd_dir if os.access(chd_dir, os.W_OK) else None
     tmp_dir  = tempfile.mkdtemp(prefix="ra_", dir=tmp_base)
@@ -295,37 +318,66 @@ def compute_ra_hash(chd_path, log_fn=None, progress_fn=None):
         if log_fn: log_fn("[RA] Extracting %s…" % fname)
         if progress_fn: progress_fn(5)
 
-        # Get track info from CHD metadata
-        tracks = _get_chd_track_info(chd_path)
+        # ── Determine CHD type: CD or DVD ────────────────────────
+        tracks     = _get_chd_track_info(chd_path)
         data_track = next((t for t in tracks if "MODE" in t.get("type","")), None)
-        if data_track and log_fn:
-            log_fn("[RA] Track type: %s, pregap: %d" % (data_track["type"], data_track["pregap"]))
+        is_dvd     = not tracks  # no track metadata → DVD CHD
 
-        # Always use extractcd — it correctly handles all PS2 disc types
-        cue_path = os.path.join(tmp_dir, "disc.cue")
-        bin_path = os.path.join(tmp_dir, "disc.bin")
-        proc = subprocess.run(
-            ["chdman", "extractcd", "-i", chd_path,
-             "-o", cue_path, "-ob", bin_path, "-f"],
-            capture_output=True, text=True, timeout=600
-        )
-        if proc.returncode != 0:
-            return None, None, "chdman extractcd failed: %s" % proc.stderr[-300:]
+        if log_fn:
+            if is_dvd:
+                log_fn("[RA] CHD type: DVD (createdvd — using extractraw)")
+            else:
+                t = data_track["type"] if data_track else "unknown"
+                log_fn("[RA] CHD type: CD (createcd — track type: %s)" % t)
 
-        if progress_fn: progress_fn(60)
+        # ── DVD path: extractraw → plain 2048-byte cooked ISO ────
+        if is_dvd:
+            iso_path = os.path.join(tmp_dir, "disc.iso")
+            proc = subprocess.run(
+                ["chdman", "extractraw", "-i", chd_path, "-o", iso_path, "-f"],
+                capture_output=True, text=True, timeout=600
+            )
+            if proc.returncode != 0:
+                return None, None, "chdman extractraw failed: %s" % proc.stderr[-300:]
+            if progress_fn: progress_fn(60)
+            # DVD ISO: cooked 2048-byte sectors, no pregap, read directly
+            sec_size, usr_off, cue_pregap = 2048, 0, 0
+            data_bin = iso_path
+            if log_fn: log_fn("[RA] Format: DVD cooked, 2048B sectors, no pregap")
 
-        # Parse CUE to find data track BIN and its geometry
-        data_bin, sec_size, usr_off, cue_pregap = _first_data_track(cue_path)
-
-        # Override with chdman info if we got it
-        if data_track:
-            sec_size, usr_off = _track_geometry(data_track["type"])
-            # Use the pregap from metadata if CUE didn't specify one
-            if cue_pregap == 0 and data_track["pregap"] > 0:
-                cue_pregap = data_track["pregap"]
-
-        if not data_bin or not os.path.exists(data_bin):
-            data_bin = bin_path  # fallback to single bin
+        # ── CD path: extractcd → CUE+BIN ────────────────────────
+        else:
+            cue_path = os.path.join(tmp_dir, "disc.cue")
+            bin_path = os.path.join(tmp_dir, "disc.bin")
+            proc = subprocess.run(
+                ["chdman", "extractcd", "-i", chd_path,
+                 "-o", cue_path, "-ob", bin_path, "-f"],
+                capture_output=True, text=True, timeout=600
+            )
+            if proc.returncode != 0:
+                # Might be a DVD CHD that _get_chd_track_info missed — retry as DVD
+                if log_fn: log_fn("[RA] extractcd failed, retrying as DVD…")
+                iso_path = os.path.join(tmp_dir, "disc.iso")
+                proc2 = subprocess.run(
+                    ["chdman", "extractraw", "-i", chd_path, "-o", iso_path, "-f"],
+                    capture_output=True, text=True, timeout=600
+                )
+                if proc2.returncode != 0:
+                    return None, None, "chdman extraction failed (tried both extractcd and extractraw)"
+                sec_size, usr_off, cue_pregap = 2048, 0, 0
+                data_bin = iso_path
+                if log_fn: log_fn("[RA] Extracted as DVD raw ISO (fallback)")
+            else:
+                if progress_fn: progress_fn(60)
+                data_bin, sec_size, usr_off, cue_pregap = _first_data_track(cue_path)
+                if data_track:
+                    sec_size, usr_off = _track_geometry(data_track["type"])
+                    if cue_pregap == 0 and data_track["pregap"] > 0:
+                        cue_pregap = data_track["pregap"]
+                if not data_bin or not os.path.exists(data_bin):
+                    data_bin = bin_path
+                if log_fn: log_fn("[RA] Format: %dB sectors, usr_off=%d, pregap=%d"
+                                  % (sec_size, usr_off, cue_pregap))
 
         if not os.path.exists(data_bin):
             return None, None, "Data track BIN not found"
