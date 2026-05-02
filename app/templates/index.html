@@ -1967,12 +1967,16 @@ function makeRARow(item) {
 
   const statusCol = `<div style="font-size:12px;font-weight:700;color:${color};white-space:nowrap">${label}</div>`;
 
-  const debugBtn = `<button title="Run full diagnostic on this file"
-    style="background:none;border:1px solid var(--border);border-radius:4px;color:var(--text-muted);font-size:10px;padding:2px 6px;cursor:pointer;white-space:nowrap"
-    onclick="raDebug(${JSON.stringify(item.path)}, this)">🔍 Debug</button>`;
-
   div.style.gridTemplateColumns = '1fr auto auto auto';
-  div.innerHTML = nameCol + hashCol + debugBtn + statusCol;
+  div.innerHTML = nameCol + hashCol +
+    `<button data-path="${esc(item.path)}" title="Run full diagnostic on this file"
+      style="background:none;border:1px solid var(--border);border-radius:4px;color:var(--text-muted);font-size:10px;padding:2px 6px;cursor:pointer;white-space:nowrap"
+      >🔍 Debug</button>` + statusCol;
+
+  // Attach click listener directly — avoids double-quote conflict in onclick=""
+  div.querySelector('button[data-path]').addEventListener('click', function() {
+    raDebug(this.dataset.path, this);
+  });
   return div;
 }
 
