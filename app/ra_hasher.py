@@ -400,6 +400,10 @@ def compute_ra_hash(chd_path, log_fn=None, progress_fn=None):
 
             cnf_data = _read_file_from_iso(f, cnf_lba, cnf_size, sec_size, usr_off, cue_pregap)
             exe_name = _parse_system_cnf(cnf_data)
+            # Always log raw SYSTEM.CNF so we can diagnose misreads
+            if log_fn:
+                cnf_text = cnf_data.decode("ascii", errors="replace").strip()[:200]
+                log_fn("[RA] SYSTEM.CNF content: %r" % cnf_text)
             if not exe_name:
                 return None, None, "Could not parse boot exe from SYSTEM.CNF: %r" % cnf_data[:80]
 
