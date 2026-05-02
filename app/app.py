@@ -429,10 +429,9 @@ def get_eta():
 
 @app.route("/api/jobs/<job_id>/verify", methods=["POST"])
 def verify_chd(job_id):
-    """Run chdman verify on a completed job's output CHD."""
+    """Run chdman verify on a completed job's output CHD — streams progress via SSE."""
     with jobs_lock:
         job = jobs.get(job_id) or {}
-    # Also check history if not in memory
     if not job:
         from history import history_manager
         for e in history_manager.get_entries():
@@ -442,18 +441,27 @@ def verify_chd(job_id):
     chd = job.get("output_path") or job.get("rezip_path")
     if not chd or not chd.endswith(".chd") or not os.path.exists(chd):
         return jsonify({"ok": False, "error": "CHD file not found"})
-    try:
-        result = subprocess.run(
-            ["chdman", "verify", "-i", chd],
-            capture_output=True, text=True, timeout=120
-        )
-        output = (result.stdout + result.stderr).strip()
-        ok = result.returncode == 0
-        return jsonify({"ok": ok, "output": output})
-    except subprocess.TimeoutExpired:
-        return jsonify({"ok": False, "error": "Verify timed out after 2 minutes"})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
+
+    def generate():
+        try:
+            proc = subprocess.Popen(
+                ["chdman", "verify", "-i", chd],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, bufsize=1
+            )
+            lines = []
+            for line in proc.stdout:
+                line = line.rstrip()
+                lines.append(line)
+                yield "data: %s\n\n" % json.dumps({"line": line})
+            proc.wait(timeout=1800)
+            ok = proc.returncode == 0
+            yield "data: %s\n\n" % json.dumps({"done": True, "ok": ok, "output": "\n".join(lines)})
+        except Exception as e:
+            yield "data: %s\n\n" % json.dumps({"done": True, "ok": False, "error": str(e)})
+
+    return Response(generate(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.route("/api/queue/pause", methods=["POST"])

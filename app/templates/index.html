@@ -1765,20 +1765,63 @@ function fmtBytes(b) {
 
 // ── CHD Verify ────────────────────────────────────────────────────────────────
 async function verifyCHD(jobId, btn) {
-  const origText = btn.textContent;
-  btn.textContent = '⏳ Verifying…';
+  btn.textContent = '⏳ 0%';
   btn.disabled = true;
+
+  // Build a small inline log panel below the button
+  let logPanel = document.getElementById('verify-log-' + jobId);
+  if (!logPanel) {
+    logPanel = document.createElement('pre');
+    logPanel.id = 'verify-log-' + jobId;
+    logPanel.style.cssText = 'font-size:11px;background:var(--bg-tertiary);border:1px solid var(--border);' +
+      'border-radius:6px;padding:10px 12px;margin-top:8px;max-height:160px;overflow-y:auto;' +
+      'color:var(--text-primary);white-space:pre-wrap;font-family:monospace;line-height:1.5';
+    btn.parentElement.appendChild(logPanel);
+  }
+  logPanel.textContent = '';
+  logPanel.style.display = 'block';
+
   try {
-    const d = await fetch(`/api/jobs/${jobId}/verify`, {method:'POST'}).then(r=>r.json());
-    btn.textContent = d.ok ? '✅ Valid' : '❌ Failed';
-    btn.style.color = d.ok ? 'var(--success)' : 'var(--error)';
-    if (!d.ok && d.error) {
-      alert('Verify failed: ' + (d.output || d.error));
+    const resp = await fetch(`/api/jobs/${jobId}/verify`, {method:'POST'});
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let pct = 0;
+
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, {stream: true});
+      const parts = buf.split('\n\n');
+      buf = parts.pop();
+      for (const part of parts) {
+        if (!part.startsWith('data: ')) continue;
+        try {
+          const msg = JSON.parse(part.slice(6));
+          if (msg.line !== undefined) {
+            // Parse progress percentage from chdman output
+            const m = msg.line.match(/(\d+)%/);
+            if (m) { pct = parseInt(m[1]); btn.textContent = `⏳ ${pct}%`; }
+            logPanel.textContent += msg.line + '\n';
+            logPanel.scrollTop = logPanel.scrollHeight;
+          }
+          if (msg.done) {
+            btn.textContent = msg.ok ? '✅ Valid' : '❌ Failed';
+            btn.style.color = msg.ok ? 'var(--success)' : 'var(--error)';
+            btn.disabled = false;
+            if (!msg.ok) {
+              logPanel.style.borderColor = 'var(--error)';
+            }
+          }
+        } catch(e) {}
+      }
     }
   } catch(e) {
-    btn.textContent = origText;
+    btn.textContent = '❌ Error';
+    btn.style.color = 'var(--error)';
+    btn.disabled = false;
+    logPanel.textContent = 'Request failed: ' + e.message;
   }
-  btn.disabled = false;
 }
 
 // ── History Log Modal ─────────────────────────────────────────────────────────
