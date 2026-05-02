@@ -383,26 +383,76 @@ def rezip_to_7z(chd_path, output_7z, compression=5, log_fn=None, progress_fn=Non
 
 # ── chdman wrapper ───────────────────────────────────────────────
 
+def make_iso_cue(iso_path, tmp_dir):
+    """
+    Generate a minimal CUE sheet for a cooked ISO/IMG file (DVD or CD).
+    Uses MODE1/2048 — the standard for cooked single-track disc images.
+    chdman createcd accepts this and produces a proper PS2-compatible CHD.
+    """
+    cue_name = os.path.splitext(os.path.basename(iso_path))[0] + ".cue"
+    cue_path = os.path.join(tmp_dir, cue_name)
+    with open(cue_path, "w") as f:
+        f.write('FILE "%s" BINARY\n' % os.path.basename(iso_path))
+        f.write("  TRACK 01 MODE1/2048\n")
+        f.write("    INDEX 01 00:00:00\n")
+    return cue_path
+
+
 def run_chdman(input_file, output_file, chd_type, log_fn=None, progress_fn=None):
-    # Auto-generate a temp CUE if only a bare .bin is given — chdman needs it
+    """
+    Convert a disc image to CHD.
+
+    ISO/IMG (DVD-type cooked):
+      Generate a temp CUE (MODE1/2048) and run createcd.
+      This is the standard PS2 CHD format used by the community and
+      the format rcheevos/RA expects when hashing PS2 games.
+
+    BIN without CUE (CD-type raw):
+      Detect sector format, generate a temp CUE (MODE1/2352 or MODE2/2352),
+      then run createcd.
+
+    CUE (has its own track description):
+      Pass directly to createcd.
+
+    HD:
+      createhd for hard disk images.
+    """
     _tmp_cue_dir = None
     try:
-        if input_file.lower().endswith(".bin"):
-            cue = os.path.splitext(input_file)[0] + ".cue"
-            if not os.path.exists(cue):
+        ext = os.path.splitext(input_file)[1].lower()
+
+        if chd_type == "hd":
+            cmd = ["chdman", "createhd", "-i", input_file, "-o", output_file, "-f"]
+
+        elif chd_type == "dvd":
+            # DVD/cooked ISO: wrap in a MODE1/2048 CUE then use createcd
+            _tmp_cue_dir = tempfile.mkdtemp(prefix="cue_")
+            import shutil as _sh
+            _sh.copy2(input_file, os.path.join(_tmp_cue_dir, os.path.basename(input_file)))
+            cue = make_iso_cue(os.path.join(_tmp_cue_dir, os.path.basename(input_file)), _tmp_cue_dir)
+            if log_fn: log_fn(f"Auto-generated MODE1/2048 CUE for DVD ISO", "info")
+            cmd = ["chdman", "createcd", "-i", cue, "-o", output_file, "-f"]
+
+        else:
+            # CD path — handle bare BIN
+            if ext == ".bin":
+                cue = os.path.splitext(input_file)[0] + ".cue"
+                if not os.path.exists(cue):
+                    _tmp_cue_dir = tempfile.mkdtemp(prefix="cue_")
+                    import shutil as _sh
+                    _sh.copy2(input_file, os.path.join(_tmp_cue_dir, os.path.basename(input_file)))
+                    cue = make_temp_cue(input_file, _tmp_cue_dir)
+                    if log_fn: log_fn(f"Auto-generated CUE for bare BIN ({os.path.basename(input_file)})", "info")
+                    input_file = cue
+            elif ext in (".iso", ".img") and chd_type == "cd":
+                # Manual override to CD for a cooked ISO — still wrap in CUE
                 _tmp_cue_dir = tempfile.mkdtemp(prefix="cue_")
-                # Copy/link the bin so the temp CUE can reference it by name
                 import shutil as _sh
                 _sh.copy2(input_file, os.path.join(_tmp_cue_dir, os.path.basename(input_file)))
-                cue = make_temp_cue(input_file, _tmp_cue_dir)
-                if log_fn: log_fn(f"Auto-generated CUE for bare BIN ({os.path.basename(input_file)})", "warn")
-                input_file = cue  # pass the CUE to chdman
-        if chd_type == "hd":
-            cmd = ["chdman", "createhd",  "-i", input_file, "-o", output_file, "-f"]
-        elif chd_type == "dvd":
-            cmd = ["chdman", "createraw", "-i", input_file, "-o", output_file, "-f"]
-        else:
-            cmd = ["chdman", "createcd",  "-i", input_file, "-o", output_file, "-f"]
+                cue = make_iso_cue(os.path.join(_tmp_cue_dir, os.path.basename(input_file)), _tmp_cue_dir)
+                input_file = cue
+            cmd = ["chdman", "createcd", "-i", input_file, "-o", output_file, "-f"]
+
         if log_fn: log_fn(f"Running: {' '.join(cmd)}")
         rc = _run_with_progress(cmd, log_fn=log_fn, progress_fn=progress_fn)
         if rc != 0:
