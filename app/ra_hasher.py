@@ -78,6 +78,31 @@ def _track_geometry(track_type):
 
 # ── Sector reader ─────────────────────────────────────────────────
 
+def _sniff_bin_geometry(bin_path):
+    """
+    Detect the actual sector size and user-data offset of a BIN file
+    by reading its first bytes and checking for the raw CD sync pattern.
+
+    chdman extractcd ALWAYS writes 2352-byte raw sectors regardless of
+    what the CUE says about the track type (MODE1/2048, MODE2/2352 etc).
+    Trusting _track_geometry for "MODE1" gives 2048 which is wrong for
+    extractcd output and causes ~3-sector offsets in every read.
+    """
+    RAW_SYNC = b"\x00\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\x00"
+    try:
+        with open(bin_path, "rb") as f:
+            header = f.read(2352)
+        if header[:12] == RAW_SYNC:
+            mode_byte = header[15] if len(header) > 15 else 1
+            if mode_byte == 2:
+                return 2352, 24   # MODE2: sync(12)+header(4)+subheader(8)
+            else:
+                return 2352, 16   # MODE1: sync(12)+header(4)
+    except Exception:
+        pass
+    return 2048, 0   # cooked (should not happen with extractcd, but safe fallback)
+
+
 def _read_sector(f, lba, sec_size, usr_off, pregap=0):
     f.seek((pregap + lba) * sec_size + usr_off)
     return f.read(USER_DATA_SIZE)
@@ -313,15 +338,22 @@ def compute_ra_hash(chd_path, log_fn=None, progress_fn=None):
         if progress_fn: progress_fn(60)
 
         data_bin, sec_size, usr_off, cue_pregap = _first_data_track(cue_path)
-        if data_track:
-            sec_size, usr_off = _track_geometry(data_track["type"])
-            if cue_pregap == 0 and data_track["pregap"] > 0:
-                cue_pregap = data_track["pregap"]
+        if data_track and cue_pregap == 0 and data_track["pregap"] > 0:
+            cue_pregap = data_track["pregap"]
         if not data_bin or not os.path.exists(data_bin):
             data_bin = bin_path
 
         if not os.path.exists(data_bin):
             return None, None, "Data track BIN not found"
+
+        # Sniff actual BIN sector size — extractcd always writes 2352-byte raw
+        # sectors even when the CUE says MODE1/2048, so _track_geometry gives
+        # the wrong sec_size. Reading the sync pattern is the only reliable method.
+        sniffed_sec, sniffed_off = _sniff_bin_geometry(data_bin)
+        if sniffed_sec != sec_size or sniffed_off != usr_off:
+            if log_fn: log_fn("[RA] Correcting geometry from CUE (%dB+%d) → sniffed (%dB+%d)"
+                              % (sec_size, usr_off, sniffed_sec, sniffed_off))
+        sec_size, usr_off = sniffed_sec, sniffed_off
 
         if log_fn: log_fn("[RA] Format: %dB sectors, usr_off=%d, pregap=%d" % (sec_size, usr_off, cue_pregap))
         if progress_fn: progress_fn(65)
